@@ -42,6 +42,25 @@ export interface Cat {
   landAt: number;
 }
 
+/**
+ * Everything needed to replay a run exactly: the seed, where the run began,
+ * and the playing-step index of every flap (the first, at 0, is the take-off).
+ * The simulation is fixed-step and uses only IEEE-exact arithmetic, so the
+ * same record replays bit-for-bit on any device (see `social/replay.ts`).
+ */
+export interface RunRecord {
+  seed: number;
+  /** `scroll` when the run started. */
+  startScroll: number;
+  /** Cat y when the run started. */
+  startY: number;
+  /** Playing-step count at each flap, non-decreasing, first is 0. */
+  flaps: number[];
+}
+
+/** Longest run a record keeps flaps for (≈ 1.5 hours of frantic tapping); later flaps aren't recorded. */
+export const MAX_RECORDED_FLAPS = 30_000;
+
 export function readyHoverY(time: number): number {
   return CAT.startY + Math.sin(time * Math.PI * 2 * CAT.readyBobHz) * CAT.readyBobAmplitude;
 }
@@ -68,6 +87,12 @@ export class Game {
   deathCause: DeathCause | null = null;
   /** Seconds left in the 3‑2‑1 resume countdown; 0 while waiting on the pause screen. */
   countdown = 0;
+  /** When set, every run uses this seed (a shared course) instead of drawing the next one. */
+  fixedSeed: number | null = null;
+  /** Simulation steps spent in PLAYING this run — the clock replays are keyed on. */
+  runTicks = 0;
+  /** The current (or last) run's inputs. */
+  readonly record: RunRecord = { seed: 0, startScroll: 0, startY: 0, flaps: [] };
   readonly cat: Cat = {
     y: CAT.startY, vy: 0, prevY: CAT.startY, landed: false,
     flapAt: -Infinity, bonkAt: -Infinity, deathAt: -Infinity, landAt: -Infinity,
@@ -143,7 +168,7 @@ export class Game {
    * whole session is reproducible from the first seed.
    */
   reset(seed?: number): void {
-    this.seed = seed ?? ((this.rng() * 0x100000000) >>> 0);
+    this.seed = seed ?? this.fixedSeed ?? ((this.rng() * 0x100000000) >>> 0);
     this.rng = createRng(this.seed);
     for (const o of this.obstacles) o.active = false;
     this.score = 0;
@@ -153,6 +178,9 @@ export class Game {
     this.nextSpawnX = Infinity;
     this.deathCause = null;
     this.countdown = 0;
+    this.runTicks = 0;
+    this.record.seed = this.seed;
+    this.record.flaps.length = 0;
 
     const cat = this.cat;
     cat.y = readyHoverY(this.time);
@@ -218,6 +246,7 @@ export class Game {
     const cat = this.cat;
     const r = CAT.hitboxRadius;
 
+    this.runTicks++;
     this.speed = speedForScore(this.score);
     this.scroll += this.speed * dt;
     integrate(cat, dt);
@@ -274,10 +303,14 @@ export class Game {
   private start(): void {
     this.setPhase('playing');
     this.nextSpawnX = this.scroll + CAT.x + OBSTACLE.firstDistance;
+    this.record.startScroll = this.scroll;
+    this.record.startY = this.cat.y;
     this.emit({ type: 'start' });
   }
 
   private doFlap(): void {
+    const flaps = this.record.flaps;
+    if (flaps.length < MAX_RECORDED_FLAPS && flaps[flaps.length - 1] !== this.runTicks) flaps.push(this.runTicks);
     this.cat.vy = PHYSICS.flapVelocity;
     this.cat.flapAt = this.time;
     this.emit({ type: 'flap' });

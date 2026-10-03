@@ -1,13 +1,13 @@
-import { CAT_COLORS } from './palette.ts';
+import { GINGER } from './palette.ts';
 
 /*
- * Small, pooled effects: flap puffs, crash feathers, score sparks, "+1"
+ * Small, pooled effects: flap puffs, crash fur tufts, score sparks, "+1"
  * pop-ups, screen shake and flash. Fixed-size pools — nothing grows during
  * play, however long the session.
  */
 
 const PUFF = 0;
-const FEATHER = 1;
+const TUFT = 1;
 const SPARK = 2;
 
 interface Particle {
@@ -61,9 +61,10 @@ export class Fx {
     }
   }
 
-  feathers(x: number, y: number): void {
+  /** Tufts of ginger fur knocked loose in a crash. */
+  furTufts(x: number, y: number): void {
     for (let i = 0; i < 8; i++) {
-      this.spawn(FEATHER, x + this.rand(-8, 8), y + this.rand(-10, 4), this.rand(-90, 90), this.rand(-170, -40), this.rand(0.9, 1.4), this.rand(4, 6));
+      this.spawn(TUFT, x + this.rand(-8, 8), y + this.rand(-10, 4), this.rand(-90, 90), this.rand(-170, -40), this.rand(0.9, 1.4), this.rand(4, 6));
     }
   }
 
@@ -112,7 +113,7 @@ export class Fx {
         p.active = false;
         continue;
       }
-      if (p.kind === FEATHER) {
+      if (p.kind === TUFT) {
         // Flutter down: drag plus a sideways sway.
         p.vx *= Math.exp(-2.2 * dt);
         p.vy = Math.min(p.vy + 420 * dt, 55);
@@ -146,21 +147,20 @@ export class Fx {
         ctx.beginPath();
         ctx.arc(x, p.y, p.size * (0.6 + t * 0.9), 0, Math.PI * 2);
         ctx.fill();
-      } else if (p.kind === FEATHER) {
+      } else if (p.kind === TUFT) {
+        // A wisp of ginger fur with a pale end, like the chest fur.
         ctx.globalAlpha = t < 0.75 ? 1 : (1 - t) * 4;
         ctx.save();
         ctx.translate(x, p.y);
         ctx.rotate(p.rot);
-        ctx.fillStyle = CAT_COLORS.wing;
+        ctx.fillStyle = GINGER.fur;
         ctx.beginPath();
-        ctx.ellipse(0, 0, p.size, p.size * 0.42, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, p.size, p.size * 0.38, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = CAT_COLORS.wingShade;
-        ctx.lineWidth = 0.8;
+        ctx.fillStyle = GINGER.cream;
         ctx.beginPath();
-        ctx.moveTo(-p.size, 0);
-        ctx.lineTo(p.size, 0);
-        ctx.stroke();
+        ctx.ellipse(p.size * 0.45, 0, p.size * 0.5, p.size * 0.26, 0, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
       } else {
         ctx.globalAlpha = 1 - t;

@@ -25,6 +25,7 @@
           </button>
           <output class="score" aria-hidden="true">0</output>
           <p class="beat-best" aria-hidden="true"></p>
+          <p class="overtake" aria-hidden="true"></p>
           <button type="button" class="icon-btn sound-btn" data-action="sound" aria-pressed="true">
             <svg class="icon-sound-on" viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M4 9.5h3.2L12 5.4v13.2l-4.8-4.1H4z" /><path class="wave" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.6a7.6 7.6 0 0 1 0 10.8" /></svg>
             <svg class="icon-sound-off" viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M4 9.5h3.2L12 5.4v13.2l-4.8-4.1H4z" /><path class="wave" d="M15.5 9.5l5 5M20.5 9.5l-5 5" /></svg>
@@ -41,6 +42,12 @@
           <p class="tagline"></p>
           <p class="start-hint"><span class="start-main"></span> <span class="start-keys"></span></p>
           <p class="ready-best"><span class="label"></span> <b class="value">0</b></p>
+          <div class="challenge" hidden>
+            <p class="challenge-heading"></p>
+            <p class="challenge-hint"></p>
+            <ol class="rank-list challenge-list"></ol>
+            <button type="button" class="text-btn exit-challenge"></button>
+          </div>
         </section>
 
         <section class="screen paused-screen" aria-live="polite">
@@ -58,9 +65,18 @@
               <div><dt class="best-label"></dt><dd class="final-best">0</dd></div>
             </dl>
             <p class="new-best"></p>
+            <div class="share-row">
+              <input class="name-input" type="text" maxlength="24" autocomplete="nickname" enterkeyhint="done" spellcheck="false" />
+              <button type="button" class="share-btn"></button>
+            </div>
+            <div class="standings" hidden>
+              <p class="standings-label"></p>
+              <ol class="rank-list standings-list"></ol>
+            </div>
           </div>
           <p class="retry-hint"></p>
         </section>
+        <p class="toast" role="status" aria-live="polite"></p>
       </div>
     </main>
     <noscript>Cat Flap needs JavaScript to run.</noscript>

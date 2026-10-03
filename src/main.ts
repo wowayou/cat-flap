@@ -4,12 +4,15 @@ import './styles.css';
 import { AudioManager } from './audio/AudioManager.ts';
 import { Autopilot } from './game/autopilot.ts';
 import { TIMING } from './game/config.ts';
-import { Game, type GameEvent } from './game/Game.ts';
+import { Game, MAX_RECORDED_FLAPS, type GameEvent, type RunRecord } from './game/Game.ts';
 import { FixedStepLoop } from './game/loop.ts';
 import { bindInput } from './input.ts';
+import { GHOST_COLORS, GINGER } from './render/palette.ts';
 import { POPUP_FONT, Renderer } from './render/Renderer.ts';
+import { cleanName, decodeChallenge, encodeChallenge, mergeGhosts, verifyGhosts, type Ghost } from './social/link.ts';
+import { Squad, type Standing } from './social/squad.ts';
 import { browserStorage, SettingsStore } from './storage/settings.ts';
-import { countdownBeat, Hud } from './ui/Hud.ts';
+import { countdownBeat, Hud, type RankRow } from './ui/Hud.ts';
 import { pickStrings } from './ui/strings.ts';
 
 /*
@@ -29,6 +32,8 @@ const reducedMotion = media('(prefers-reduced-motion: reduce)');
 const store = new SettingsStore(browserStorage());
 const settings = store.load();
 let best = settings.best;
+const strings = pickStrings(navigator.languages ?? [navigator.language]);
+const pid = store.playerId();
 
 const game = new Game();
 const loop = new FixedStepLoop();
@@ -45,12 +50,95 @@ const toggleSound = () => {
   if (on) audio.play('tick');
 };
 
-const hud = new Hud(document, pickStrings(navigator.languages ?? [navigator.language]), touch, reducedMotion, {
+const hud = new Hud(document, strings, touch, reducedMotion, {
   togglePause: () => game.togglePause(),
   toggleSound,
   gesture: () => audio.unlock(),
+  share: () => void share(),
+  exitChallenge,
+  nameChanged: (name) => {
+    hud.nameValue = cleanName(name);
+    store.saveName(hud.nameValue);
+  },
 });
 hud.setSound(settings.soundOn);
+hud.nameValue = store.loadName();
+hud.setShareable(false);
+
+// ---------------------------------------------------------------- challenges
+
+/**
+ * `?c=…` is a friends' challenge: a shared course plus the ghosts of everyone
+ * who has flown it and passed the link on. Every retry flies the same course.
+ */
+let squad: Squad | null = null;
+/** The best run so far on the current course, which is what "share" sends. */
+let shareable: { score: number; record: RunRecord } | null = null;
+
+const myName = () => cleanName(hud.nameValue) || strings.defaultName;
+const rankRows = (rows: Standing[]): RankRow[] =>
+  rows.map((r) => ({ name: r.me ? strings.you : r.name, score: r.score, me: r.me, color: r.me ? GINGER.fur : GHOST_COLORS[r.coat] }));
+
+function enterChallenge(seed: number, ghosts: Ghost[]): void {
+  squad = new Squad(ghosts);
+  game.fixedSeed = seed;
+  game.reset(seed);
+  renderer.setSquad(squad);
+  hud.setChallenge(rankRows(squad.standings('', -1).filter((r) => !r.me)));
+}
+
+function exitChallenge(): void {
+  squad = null;
+  renderer.setSquad(null);
+  game.fixedSeed = null;
+  if (game.phase === 'ready') game.reset();
+  hud.setChallenge(null);
+  const url = new URL(location.href);
+  url.searchParams.delete('c');
+  history.replaceState(history.state, '', url);
+}
+
+function openLink(value: string): void {
+  const decoded = decodeChallenge(value);
+  if (!decoded.ok) {
+    hud.toast(decoded.reason === 'outdated' ? strings.linkOutdated : strings.linkBroken, 4000);
+    return;
+  }
+  const { seed, ghosts } = decoded.challenge;
+  const { valid, rejected } = verifyGhosts(ghosts);
+  if (valid.length === 0) {
+    hud.toast(ghosts.length ? strings.linkOutdated : strings.linkBroken, 4000);
+    return;
+  }
+  enterChallenge(seed, valid);
+  if (rejected > 0) hud.toast(strings.ghostsSkipped(rejected), 4000);
+}
+
+async function share(): Promise<void> {
+  if (!shareable) return;
+  const me: Ghost = { pid, name: myName(), score: shareable.score, record: shareable.record };
+  const others = squad && game.fixedSeed === shareable.record.seed ? squad.rivals.map((r) => r.ghost) : [];
+  const ghosts = mergeGhosts(others, me);
+  const self = ghosts.find((g) => g.pid === pid) ?? me;
+  const url = new URL(location.pathname, location.origin);
+  url.searchParams.set('c', encodeChallenge({ seed: shareable.record.seed, ghosts }));
+  const text = strings.shareText(self.score, ghosts.indexOf(self) + 1, ghosts.length);
+
+  if (typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ title: 'Cat Flap', text, url: url.href });
+      return;
+    } catch (err) {
+      if ((err as { name?: string } | null)?.name === 'AbortError') return; // the player closed the sheet
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(`${text}\n${url.href}`);
+    hud.toast(strings.copied);
+  } catch {
+    window.prompt(strings.copyPrompt, url.href);
+  }
+}
 
 bindInput(app, window, {
   primary: () => game.flap(),
@@ -76,7 +164,7 @@ function onEvent(e: GameEvent): void {
     case 'flap':
       audio.play('flap');
       break;
-    case 'score':
+    case 'score': {
       audio.play('score');
       hud.pulseScore();
       if (!celebrated && best > 0 && e.score > best) {
@@ -84,7 +172,13 @@ function onEvent(e: GameEvent): void {
         hud.celebrateBest();
         audio.play('go', 0.16);
       }
+      const passed = squad?.overtaken(e.score) ?? [];
+      if (passed.length > 0) {
+        hud.announceOvertake(strings.overtook(passed.map((r) => r.ghost.name).join(' · ')));
+        audio.play('go', 0.1);
+      }
       break;
+    }
     case 'bonk':
       audio.play('bonk');
       break;
@@ -103,6 +197,13 @@ function onEvent(e: GameEvent): void {
         store.saveBest(best);
       }
       hud.showResult(e.score, best, isNew);
+      // Keep the best run on this course for sharing (a record past the flap cap couldn't replay).
+      const record = game.record;
+      if (record.flaps.length < MAX_RECORDED_FLAPS && (!shareable || shareable.record.seed !== record.seed || e.score >= shareable.score)) {
+        shareable = { score: e.score, record: { ...record, flaps: record.flaps.slice() } };
+      }
+      hud.setShareable(shareable !== null);
+      hud.showStandings(squad ? rankRows(squad.standings(myName(), e.score)) : null);
       break;
     }
     default:
@@ -138,7 +239,10 @@ function frame(now: number): void {
       if (game.score < botLimit) bot.update(game);
       if (game.phase === 'ready' || (game.phase === 'gameover' && game.phaseTime > 1.6 && botLimit === Infinity)) game.flap();
     }
+    squad?.beforeStep(game);
+    const before = game.phase;
     game.step(step);
+    squad?.afterStep(game, before);
   });
   game.consumeEvents(onEvent);
 
@@ -152,6 +256,9 @@ function frame(now: number): void {
   hud.sync(game, best);
   requestAnimationFrame(frame);
 }
+
+const link = params.get('c');
+if (link) openLink(link);
 
 // Start drawing straight away; ask for the display font early so the canvas "+1" pop-ups get it.
 requestAnimationFrame((t) => {

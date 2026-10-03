@@ -1,22 +1,39 @@
 import { circleHitsObstacle } from '../game/collision.ts';
 import { CAT, FAIRNESS, OBSTACLE, WORLD } from '../game/config.ts';
 import type { Game, GameEvent } from '../game/Game.ts';
-import { DEFAULT_POSE, drawCat, type CatPose } from './cat.ts';
+import type { Squad } from '../social/squad.ts';
+import { CatAnimator } from './animator.ts';
+import { drawCat, drawGhostCat } from './cat.ts';
 import { Fx } from './fx.ts';
-import { INK, skyAt, type SkyPalette } from './palette.ts';
+import { GHOST_COLORS, INK, skyAt, type SkyPalette } from './palette.ts';
 import { drawObstacle } from './posts.ts';
 import { drawCity, drawClouds, drawSky, drawStars, drawSunMoon, drawWall } from './scenery.ts';
 import { computeView, type View } from './view.ts';
 
 export const POPUP_FONT = '700 22px "Fredoka Variable", "Fredoka", ui-rounded, system-ui, sans-serif';
+const TAG_FONT = '600 10px "Fredoka Variable", "Fredoka", ui-rounded, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
+/** Ghosts further than this outside the frame aren't drawn. */
+const GHOST_MARGIN = 52;
+const GHOST_ALPHA = 0.5;
+const TAG_HEIGHT = 14;
 /** Rendering resolution cap: beyond 2× the extra pixels cost battery and add nothing visible here. */
 const MAX_DPR = 2;
 
+interface NameTag {
+  x: number;
+  y: number;
+  w: number;
+  name: string;
+}
+
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/** A crashed cat flips belly-up a little above where it fell. */
+const deathLift = (game: Game) => (game.phase === 'dying' || game.phase === 'gameover' ? 9 * clamp01((game.time - game.cat.deathAt) / 0.55) : 0);
 
 /**
  * Draws a `Game` — never changes it. Owns only presentation state: the
- * smoothed tilt of the cat, the sky's drift, particles, shake and flash.
+ * cats' animation, the sky's drift, particles, shake and flash.
  */
 export class Renderer {
   readonly fx = new Fx();
@@ -26,8 +43,12 @@ export class Renderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private view: View = computeView(WORLD.width, WORLD.height, 1);
-  private readonly pose: CatPose = { ...DEFAULT_POSE };
-  private deathTilt = 0;
+  private readonly cat = new CatAnimator();
+  private squad: Squad | null = null;
+  private ghostAnims: CatAnimator[] = [];
+  private ghostGeneration = -1;
+  private readonly tags: NameTag[] = [];
+  private readonly spareTags: NameTag[] = [];
   private animTime = 0;
   private skyPos = 0;
   private sky: SkyPalette = skyAt(0);
@@ -43,6 +64,13 @@ export class Renderer {
 
   get currentView(): View {
     return this.view;
+  }
+
+  /** Friends' ghosts to draw alongside the player (null: none). */
+  setSquad(squad: Squad | null): void {
+    this.squad = squad;
+    this.ghostAnims = squad ? squad.rivals.map((_, i) => new CatAnimator(0.9 + i * 1.37)) : [];
+    this.ghostGeneration = -1;
   }
 
   resize(cssWidth: number, cssHeight: number, devicePixelRatio: number): View {
@@ -69,8 +97,7 @@ export class Renderer {
         if (!this.reducedMotion) this.fx.shake = Math.max(this.fx.shake, 2.5);
         break;
       case 'hit':
-        this.deathTilt = this.pose.tilt;
-        this.fx.feathers(wx - 4, cat.y - 8);
+        this.fx.furTufts(wx - 4, cat.y - 8);
         this.fx.flash = this.reducedMotion ? 0.35 : 1;
         if (!this.reducedMotion) this.fx.shake = 7;
         break;
@@ -80,7 +107,7 @@ export class Renderer {
       case 'reset':
         // A fresh cat: don't animate the belly-up pose spinning back upright.
         this.fx.clear();
-        this.pose.tilt = 0;
+        this.cat.reset();
         break;
       default:
         break;
@@ -130,9 +157,13 @@ export class Renderer {
       if (o.active) drawObstacle(ctx, o, o.x - scroll, v.top - 20);
     }
     this.fx.draw(ctx, scroll);
-    this.updatePose(game, dt);
-    const flipLift = game.phase === 'dying' || game.phase === 'gameover' ? 9 * clamp01((game.time - game.cat.deathAt) / 0.55) : 0;
-    drawCat(ctx, CAT.x, catY - flipLift, this.pose);
+    if (this.squad?.flying) {
+      this.drawGhosts(ctx, game, alpha, paused ? 0 : dt);
+      this.drawNameTags(ctx); // over the ghosts, under the player: your own cat is never hidden
+    }
+    this.cat.update(game, dt, this.animTime);
+    const flipLift = deathLift(game);
+    drawCat(ctx, CAT.x, catY - flipLift, this.cat.pose);
     if (game.cat.landed) this.drawDizzy(ctx, catY - flipLift);
     this.fx.drawPopups(ctx, POPUP_FONT, INK);
     if (this.debug) this.drawDebug(ctx, game, scroll, catY);
@@ -145,49 +176,59 @@ export class Renderer {
     this.drawSurround(ctx);
   }
 
-  private updatePose(game: Game, dt: number): void {
-    const p = this.pose;
-    const cat = game.cat;
-    const t = game.time;
-    const ease = (rate: number) => 1 - Math.exp(-rate * dt);
-
-    if (game.phase === 'dying' || game.phase === 'gameover') {
-      // Lose control: spin belly-up while falling, land with a squash.
-      const flip = clamp01((t - cat.deathAt) / 0.55);
-      const e = 1 - (1 - flip) * (1 - flip);
-      p.tilt = this.deathTilt + (Math.PI - this.deathTilt) * e;
-      const q = cat.landed ? clamp01(1 - (t - cat.landAt) / 0.25) : 0;
-      p.scaleX = 1 + 0.2 * q;
-      p.scaleY = 1 - 0.2 * q;
-      p.wing = 0.75;
-      p.legs = 1;
-      p.eyes = 'dead';
-      p.mouth = 'tongue';
-      p.tail = 0.5 + (cat.landed ? Math.sin(this.animTime * 2) * 0.08 : 0);
-      return;
+  /** Friends' ghost cats: translucent, each in its own coat, with a name tag. */
+  private drawGhosts(ctx: CanvasRenderingContext2D, player: Game, alpha: number, dt: number): void {
+    const squad = this.squad;
+    if (!squad) return;
+    if (squad.generation !== this.ghostGeneration) {
+      this.ghostGeneration = squad.generation;
+      for (const a of this.ghostAnims) a.reset();
     }
+    for (let i = 0; i < squad.rivals.length; i++) {
+      const r = squad.rivals[i];
+      const g = r.replay?.game;
+      if (!g) continue;
+      const x = squad.screenX(r, player, alpha);
+      const anim = this.ghostAnims[i];
+      anim.update(g, dt, this.animTime);
+      if (x < -GHOST_MARGIN || x > WORLD.width + GHOST_MARGIN) continue;
+      const y = g.cat.prevY + (g.cat.y - g.cat.prevY) * alpha - deathLift(g);
+      drawGhostCat(ctx, x, y, anim.pose, GHOST_COLORS[r.coat % GHOST_COLORS.length], GHOST_ALPHA);
+      const tag = this.spareTags.pop() ?? { x: 0, y: 0, w: 0, name: '' };
+      tag.x = x;
+      tag.y = y - 32;
+      tag.name = r.ghost.name;
+      this.tags.push(tag);
+    }
+  }
 
-    const ready = game.phase === 'ready';
-    const vy = ready ? 0 : cat.vy;
-    const target = ready ? Math.sin(this.animTime * 1.7) * 0.06 : Math.max(-0.45, Math.min(1.05, vy * 0.0017));
-    // Snap up on a flap, lean into a dive more lazily.
-    p.tilt += (target - p.tilt) * ease(target < p.tilt ? 20 : 6);
-
-    const since = t - cat.flapAt;
-    if (since < 0.07) p.wing = since / 0.07;
-    else if (since < 0.3) p.wing = 1 - (since - 0.07) / 0.23;
-    else p.wing = ready ? 0.4 + 0.4 * Math.sin(this.animTime * 11) : 0.12 + 0.08 * Math.sin(this.animTime * 7);
-
-    const stretch = clamp01(1 - since / 0.16);
-    const bonk = clamp01(1 - (t - cat.bonkAt) / 0.14);
-    p.scaleX = 1 - 0.1 * stretch + 0.12 * bonk;
-    p.scaleY = 1 + 0.13 * stretch - 0.12 * bonk;
-
-    p.legs = ready ? -0.15 : Math.max(-1, Math.min(1, vy / 420));
-    const panic = vy > 560;
-    p.eyes = panic ? 'wide' : this.animTime % 3.3 < 0.12 ? 'blink' : 'open';
-    p.mouth = panic ? 'open' : 'smile';
-    p.tail = Math.sin(this.animTime * 4) * 0.18 + Math.max(-0.35, Math.min(0.35, -vy * 0.0007));
+  /** Ghost name tags, nudged apart so none hides another. */
+  private drawNameTags(ctx: CanvasRenderingContext2D): void {
+    const tags = this.tags;
+    if (tags.length === 0) return;
+    ctx.font = TAG_FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const t of tags) t.w = ctx.measureText(t.name).width + 10;
+    tags.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < tags.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const a = tags[j];
+        const b = tags[i];
+        if (Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < TAG_HEIGHT + 1) b.y = a.y + TAG_HEIGHT + 1;
+      }
+    }
+    for (const t of tags) {
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = 'rgba(42,27,61,0.8)';
+      ctx.beginPath();
+      ctx.roundRect(t.x - t.w / 2, t.y - TAG_HEIGHT / 2, t.w, TAG_HEIGHT, TAG_HEIGHT / 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff4e0';
+      ctx.fillText(t.name, t.x, t.y + 0.5);
+    }
+    ctx.globalAlpha = 1;
+    while (tags.length > 0) this.spareTags.push(tags.pop()!);
   }
 
   /** Cartoon dizzy stars circling over the fallen cat. */

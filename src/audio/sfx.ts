@@ -63,7 +63,7 @@ function noiseBurst(
   src.stop(t + dur + 0.02);
 }
 
-/** Wing "fwip": a short rising swish. Frequent, so soft and slightly varied. */
+/** Cape "fwip": a short rising swish. Frequent, so soft and slightly varied. */
 function flap(ctx: BaseAudioContext, out: AudioNode, t: number): void {
   const v = 0.9 + Math.random() * 0.2;
   noiseBurst(ctx, out, t, 'bandpass', 900 * v, 2600 * v, 1.4, 0.55, 0.09);

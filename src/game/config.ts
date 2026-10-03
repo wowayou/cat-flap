@@ -28,7 +28,7 @@ export const CAT = {
   startY: 272,
   /**
    * Hitbox circle radius. The drawn cat is noticeably larger (ears, tail,
-   * wings, paws stick out): the art may overlap a post a little before a
+   * cape, paws stick out): the art may overlap a post a little before a
    * death counts, never the other way round.
    */
   hitboxRadius: 13,

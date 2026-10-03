@@ -91,3 +91,15 @@ describe('other keys', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('text fields', () => {
+  it('typing a name (Space, Enter, P, M, W) never flaps, pauses or mutes, and is not blocked', () => {
+    const input = document.createElement('input');
+    surface.append(input);
+    for (const code of ['Space', 'Enter', 'KeyP', 'KeyM', 'KeyW', 'ArrowUp']) {
+      const e = key(code, {}, input);
+      expect(e.defaultPrevented).toBe(false);
+    }
+    expect(calls).toEqual([]);
+  });
+});

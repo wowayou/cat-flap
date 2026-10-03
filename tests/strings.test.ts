@@ -21,6 +21,10 @@ describe('pickStrings', () => {
       }
       expect(s.livesLeft(3)).toContain('3');
       expect(s.startKeys).toContain('{key}');
+      expect(s.overtook('Ann')).toContain('Ann');
+      expect(s.ghostsSkipped(2)).toContain('2');
+      expect(s.shareText(23, 2, 4)).toMatch(/23[\s\S]*2[\s\S]*4|23[\s\S]*4[\s\S]*2/);
+      expect(s.shareText(23, 1, 1)).toContain('23');
     }
   });
 });

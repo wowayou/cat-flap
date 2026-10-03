@@ -56,4 +56,21 @@ describe('SettingsStore', () => {
   it('ignores a corrupted best score', () => {
     expect(new SettingsStore(memory({ [KEYS.best]: '{"x":1}' })).load().best).toBe(0);
   });
+
+  it('keeps a name, and one random device id across reloads', () => {
+    const backing = memory();
+    const a = new SettingsStore(backing);
+    expect(a.loadName()).toBe('');
+    a.saveName('小橘');
+    const id = a.playerId(() => 0.5);
+    expect(id).toBeGreaterThan(0);
+    const b = new SettingsStore(backing);
+    expect(b.loadName()).toBe('小橘');
+    expect(b.playerId(() => 0.9)).toBe(id);
+  });
+
+  it('replaces a corrupted device id, and still works without storage', () => {
+    expect(new SettingsStore(memory({ [KEYS.pid]: 'abc' })).playerId(() => 0)).toBe(1);
+    expect(new SettingsStore(null).playerId(() => 0.25)).toBeGreaterThan(0);
+  });
 });

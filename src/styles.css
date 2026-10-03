@@ -421,7 +421,8 @@ kbd {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: calc(var(--u) * 132px);
+  /* High enough that the share row sits above the middle of the screen, away from where thumbs tap to retry. */
+  padding-top: calc(var(--u) * 80px);
 }
 
 .card {
@@ -530,6 +531,249 @@ kbd {
 .can-retry .retry-hint {
   opacity: 1;
   animation: breathe 1.8s 0.3s ease-in-out infinite;
+}
+
+/* ---------- Challenges (friends' ghosts) ---------- */
+
+/* Passing a friend's crash point mid-run. Shown only by Hud.announceOvertake(). */
+.overtake {
+  position: absolute;
+  top: calc(var(--u) * 142px);
+  left: 50%;
+  translate: -50% 0;
+  max-width: calc(var(--u) * 300px);
+  margin: 0;
+  padding: calc(var(--u) * 3px) calc(var(--u) * 12px) calc(var(--u) * 4px);
+  overflow: hidden;
+  border: calc(var(--u) * 2.5px) solid var(--ink);
+  border-radius: 99px;
+  background: var(--cream);
+  box-shadow: 0 calc(var(--u) * 3px) 0 var(--ink);
+  font-size: calc(var(--u) * 15px);
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0;
+}
+
+.challenge {
+  position: absolute;
+  top: calc(var(--u) * 300px);
+  left: 50%;
+  width: calc(var(--u) * 248px);
+  translate: -50% 0;
+  padding: calc(var(--u) * 8px) calc(var(--u) * 12px) calc(var(--u) * 4px);
+  border: calc(var(--u) * 2.5px) solid var(--ink);
+  border-radius: calc(var(--u) * 16px);
+  background: var(--cream);
+  box-shadow: 0 calc(var(--u) * 4px) 0 var(--ink);
+  text-align: center;
+}
+
+.challenge[hidden],
+.standings[hidden],
+.share-row[hidden] {
+  display: none;
+}
+
+.challenge-heading {
+  font-size: calc(var(--u) * 16px);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.challenge-hint {
+  margin-bottom: calc(var(--u) * 5px) !important;
+  font-size: calc(var(--u) * 12px);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.rank-list {
+  display: grid;
+  gap: calc(var(--u) * 2px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: rank;
+  font-size: calc(var(--u) * 13.5px);
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.rank-list li {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 6px);
+  padding: calc(var(--u) * 1px) calc(var(--u) * 6px);
+  border-radius: calc(var(--u) * 8px);
+  counter-increment: rank;
+}
+
+.rank-list li::before {
+  content: counter(rank);
+  width: 1.1em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-list .dot {
+  flex: none;
+  width: calc(var(--u) * 10px);
+  height: calc(var(--u) * 10px);
+  border: calc(var(--u) * 1.5px) solid var(--ink);
+  border-radius: 50%;
+}
+
+.rank-list .who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rank-list b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-list .me {
+  background: rgba(242, 154, 56, 0.25);
+}
+
+.text-btn {
+  margin: calc(var(--u) * 2px) 0 0;
+  padding: calc(var(--u) * 4px) calc(var(--u) * 10px);
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: calc(var(--u) * 12.5px);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.text-btn:focus-visible,
+.share-btn:focus-visible {
+  outline: 3px solid var(--fur);
+  outline-offset: 2px;
+}
+
+.in-challenge .start-hint {
+  top: calc(var(--u) * 478px);
+}
+
+.in-challenge .ready-best {
+  display: none;
+}
+
+/* Game over: where this run placed, and passing the course on. */
+
+.standings {
+  margin-top: calc(var(--u) * 10px);
+  padding-top: calc(var(--u) * 8px);
+  border-top: calc(var(--u) * 2px) dashed rgba(42, 27, 61, 0.22);
+}
+
+.standings-label {
+  margin-bottom: calc(var(--u) * 4px) !important;
+  font-size: calc(var(--u) * 13px);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.share-row {
+  display: flex;
+  gap: calc(var(--u) * 6px);
+  margin-top: calc(var(--u) * 12px);
+  cursor: auto;
+  /* Like retrying, sharing waits out the lockout, so a panicked tap can't open the share sheet. */
+  pointer-events: none;
+}
+
+.can-retry .share-row {
+  pointer-events: auto;
+}
+
+.name-input {
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--u) * 36px);
+  padding: 0 calc(var(--u) * 10px);
+  border: calc(var(--u) * 2px) solid var(--ink);
+  border-radius: calc(var(--u) * 11px);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  /* At least 16px, or iOS zooms the page on focus. */
+  font-size: max(16px, calc(var(--u) * 15px));
+  font-weight: 600;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
+}
+
+.name-input::placeholder {
+  color: #a596b4;
+  font-weight: 500;
+}
+
+.name-input:focus-visible {
+  outline: 3px solid var(--fur);
+  outline-offset: 1px;
+}
+
+.share-btn {
+  flex: none;
+  height: calc(var(--u) * 36px);
+  padding: 0 calc(var(--u) * 12px);
+  border: calc(var(--u) * 2.5px) solid var(--ink);
+  border-radius: 99px;
+  background: var(--fur);
+  box-shadow: 0 calc(var(--u) * 3px) 0 var(--ink);
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(var(--u) * 15px);
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+
+.share-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--ink);
+}
+
+.toast {
+  position: absolute;
+  bottom: calc(var(--u) * 100px);
+  left: 50%;
+  z-index: 3;
+  width: max-content;
+  max-width: calc(var(--u) * 320px);
+  margin: 0;
+  padding: calc(var(--u) * 7px) calc(var(--u) * 14px);
+  translate: -50% 0;
+  border: calc(var(--u) * 2px) solid var(--cream);
+  border-radius: calc(var(--u) * 14px);
+  background: var(--ink);
+  color: var(--cream);
+  font-size: calc(var(--u) * 14px);
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.toast.show {
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {

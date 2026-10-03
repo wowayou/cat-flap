@@ -6,15 +6,56 @@
 
 export const INK = '#2a1b3d';
 
-export const CAT_COLORS = {
-  fur: '#f29a38',
-  furShade: '#d9741f',
-  cream: '#ffe6c2',
-  pink: '#f48fa0',
-  iris: '#8fd14f',
-  wing: '#ffffff',
-  wingShade: '#e3dcf2',
+/** The player's superhero cape (the cat's own colours are its `CatCoat`). */
+export const CAPE_COLORS = {
+  light: '#f25f4c',
+  cape: '#d93a3f',
+  shade: '#9c2236',
 } as const;
+
+/**
+ * A coat: everything about a cat's colouring. The player is always the
+ * ginger tabby; friends' ghost cats get the others so they read apart at a
+ * glance. `stripe: null` is a solid coat (no tabby markings).
+ */
+export interface CatCoat {
+  fur: string;
+  furLight: string;
+  furShade: string;
+  stripe: string | null;
+  /** Chin, muzzle, chest and belly (the same as `fur` for an all-one-colour cat). */
+  cream: string;
+  paw: string;
+  nose: string;
+  earInner: string;
+  irisOuter: string;
+  irisInner: string;
+  whisker: string;
+  line: string;
+}
+
+/** Ginger (orange) mackerel tabby: amber‑green eyes, pale chin, chest and belly, ringed tail. */
+export const GINGER: CatCoat = {
+  fur: '#f0973d',
+  furLight: '#ffc27e',
+  furShade: '#c9692a',
+  stripe: '#b8561f',
+  cream: '#fff0db',
+  paw: '#ffe2bd',
+  nose: '#e9868c',
+  earInner: '#f6b3ae',
+  irisOuter: '#9fbf3c',
+  irisInner: '#f3c947',
+  whisker: '#fffaf2',
+  line: '#3a2030',
+};
+
+/**
+ * Friends' ghost cats are translucent silhouettes, one colour each (indexed
+ * by `Rival.coat`): real coat colours — black, silver, white, blue-grey,
+ * brown — chosen to read apart from each other and from the ginger player.
+ */
+export const GHOST_COLORS: readonly string[] = ['#3a3340', '#b9bdc7', '#f4f1ec', '#76839a', '#9a7454'];
 
 export const POST_COLORS = {
   sisal: '#d8b784',

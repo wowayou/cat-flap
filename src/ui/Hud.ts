@@ -7,6 +7,17 @@ export interface HudActions {
   togglePause(): void;
   toggleSound(): void;
   gesture(): void;
+  share(): void;
+  exitChallenge(): void;
+  nameChanged(name: string): void;
+}
+
+/** One line of a challenge ranking. `color` is the cat's fur, shown as a dot. */
+export interface RankRow {
+  name: string;
+  score: number;
+  me: boolean;
+  color: string;
 }
 
 /** Seconds between countdown beats (3‑2‑1). */
@@ -34,6 +45,17 @@ export class Hud {
   private readonly quip: HTMLElement;
   private readonly pauseBtn: HTMLButtonElement;
   private readonly soundBtn: HTMLButtonElement;
+  private readonly overtakeEl: HTMLElement;
+  private readonly challengeEl: HTMLElement;
+  private readonly challengeList: HTMLOListElement;
+  private readonly standingsEl: HTMLElement;
+  private readonly standingsList: HTMLOListElement;
+  private readonly shareRow: HTMLElement;
+  private readonly shareBtn: HTMLButtonElement;
+  private readonly nameInput: HTMLInputElement;
+  private readonly toastEl: HTMLElement;
+  private toastTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly doc: Document;
   private readonly strings: Strings;
   private readonly reducedMotion: boolean;
 
@@ -46,6 +68,7 @@ export class Hud {
   private deaths = 0;
 
   constructor(doc: Document, strings: Strings, touch: boolean, reducedMotion: boolean, actions: HudActions) {
+    this.doc = doc;
     this.strings = strings;
     this.reducedMotion = reducedMotion;
     const $ = <T extends HTMLElement>(sel: string) => {
@@ -64,6 +87,15 @@ export class Hud {
     this.quip = $('.quip');
     this.pauseBtn = $<HTMLButtonElement>('.pause-btn');
     this.soundBtn = $<HTMLButtonElement>('.sound-btn');
+    this.overtakeEl = $('.overtake');
+    this.challengeEl = $('.challenge');
+    this.challengeList = $<HTMLOListElement>('.challenge-list');
+    this.standingsEl = $('.standings');
+    this.standingsList = $<HTMLOListElement>('.standings-list');
+    this.shareRow = $('.share-row');
+    this.shareBtn = $<HTMLButtonElement>('.share-btn');
+    this.nameInput = $<HTMLInputElement>('.name-input');
+    this.toastEl = $('.toast');
 
     doc.documentElement.lang = strings.lang;
     $('#stage').setAttribute('aria-label', strings.canvasLabel);
@@ -84,12 +116,32 @@ export class Hud {
     $('.new-best').textContent = strings.newBest;
     this.beatBest.textContent = strings.newBest;
     $('.retry-hint').textContent = touch ? strings.retryTouch : strings.retryMouse;
+    $('.challenge-heading').textContent = strings.challengeHeading;
+    $('.challenge-hint').textContent = strings.challengeHint;
+    $('.standings-label').textContent = strings.standingsLabel;
+    const exit = $<HTMLButtonElement>('.exit-challenge');
+    exit.textContent = strings.exitChallenge;
+    this.shareBtn.textContent = strings.shareStart;
+    this.nameInput.placeholder = strings.namePlaceholder;
+    this.nameInput.setAttribute('aria-label', strings.nameLabel);
     this.root.classList.toggle('touch', touch);
 
-    // Buttons must not also count as a flap: stop the press reaching the stage.
-    for (const btn of [this.pauseBtn, this.soundBtn]) {
-      btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    // Buttons and the name field must not also count as a flap: stop the press reaching the stage.
+    for (const el of [this.pauseBtn, this.soundBtn, exit, this.shareRow]) {
+      el.addEventListener('pointerdown', (e) => e.stopPropagation());
     }
+    this.shareBtn.addEventListener('click', () => {
+      actions.gesture();
+      actions.share();
+    });
+    exit.addEventListener('click', () => {
+      actions.gesture();
+      actions.exitChallenge();
+    });
+    this.nameInput.addEventListener('change', () => actions.nameChanged(this.nameInput.value));
+    this.nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.nameInput.blur();
+    });
     this.pauseBtn.addEventListener('click', () => {
       actions.gesture();
       actions.togglePause();
@@ -143,6 +195,78 @@ export class Hud {
     this.beatBest.animate(frames, { duration: 1800, easing: 'ease-out' });
   }
 
+  /** Someone's ghost was just overtaken: a sticker under the score. */
+  announceOvertake(text: string): void {
+    this.overtakeEl.textContent = text;
+    if (typeof this.overtakeEl.animate !== 'function') return;
+    const frames: Keyframe[] = this.reducedMotion
+      ? [{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }]
+      : [
+          { opacity: 0, transform: 'rotate(3deg) scale(0.5)' },
+          { opacity: 1, transform: 'rotate(3deg) scale(1.1)', offset: 0.12 },
+          { opacity: 1, transform: 'rotate(3deg) scale(1)', offset: 0.2 },
+          { opacity: 1, transform: 'rotate(3deg) scale(1)', offset: 0.85 },
+          { opacity: 0, transform: 'rotate(3deg) scale(0.9)' },
+        ];
+    this.overtakeEl.animate(frames, { duration: 1600, easing: 'ease-out' });
+  }
+
+  /** The friends on this course, shown on the Ready screen (null: not a challenge). */
+  setChallenge(rows: RankRow[] | null): void {
+    this.challengeEl.hidden = !rows;
+    this.root.classList.toggle('in-challenge', !!rows);
+    this.shareBtn.textContent = rows ? this.strings.shareRelay : this.strings.shareStart;
+    if (rows) this.fillRanks(this.challengeList, rows);
+    if (!rows) this.showStandings(null);
+  }
+
+  /** Where this run placed among the friends on the course (null: hide). */
+  showStandings(rows: RankRow[] | null): void {
+    this.standingsEl.hidden = !rows;
+    if (rows) this.fillRanks(this.standingsList, rows);
+  }
+
+  /** Whether there is a run to share (there isn't until one has been flown). */
+  setShareable(on: boolean): void {
+    this.shareRow.hidden = !on;
+  }
+
+  get nameValue(): string {
+    return this.nameInput.value;
+  }
+
+  set nameValue(name: string) {
+    this.nameInput.value = name;
+  }
+
+  /** A short message near the bottom of the frame. */
+  toast(text: string, ms = 2800): void {
+    this.toastEl.textContent = text;
+    this.toastEl.classList.add('show');
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), ms);
+  }
+
+  private fillRanks(list: HTMLOListElement, rows: RankRow[]): void {
+    const doc = this.doc;
+    list.replaceChildren(
+      ...rows.map((r) => {
+        const li = doc.createElement('li');
+        if (r.me) li.className = 'me';
+        const dot = doc.createElement('i');
+        dot.className = 'dot';
+        dot.style.background = r.color;
+        const who = doc.createElement('span');
+        who.className = 'who';
+        who.textContent = r.name;
+        const score = doc.createElement('b');
+        score.textContent = String(r.score);
+        li.append(dot, who, score);
+        return li;
+      }),
+    );
+  }
+
   /** Called once when a run ends. */
   showResult(score: number, best: number, isNew: boolean): void {
     this.deaths++;
@@ -160,6 +284,8 @@ export class Hud {
     const phase = game.phase;
     if (phase !== this.phase) {
       this.root.dataset.phase = phase;
+      // Leaving the result card: put the on-screen keyboard away.
+      if (this.phase === 'gameover' && this.doc.activeElement === this.nameInput) this.nameInput.blur();
       if (phase === 'ready') {
         const v = this.readyBest.querySelector('.value');
         if (v) v.textContent = String(best);

@@ -14,6 +14,10 @@ export interface InputActions {
 
 const PRIMARY_KEYS = new Set(['Space', 'ArrowUp', 'KeyW']);
 
+/** Typing in a text field (the share name) must never flap, pause or mute. */
+const isEditable = (t: EventTarget | null) =>
+  t instanceof HTMLElement && (t.isContentEditable || t.closest('input, textarea, select') !== null);
+
 export function bindInput(surface: HTMLElement, win: Window, actions: InputActions): () => void {
   const onPointerDown = (e: PointerEvent) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -23,7 +27,7 @@ export function bindInput(surface: HTMLElement, win: Window, actions: InputActio
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target)) return;
     const onButton = e.target instanceof HTMLElement && e.target.closest('button') !== null;
     if (PRIMARY_KEYS.has(e.code) || ((e.code === 'Enter' || e.code === 'NumpadEnter') && !onButton)) {
       e.preventDefault(); // no page scroll, no button activation by Space
