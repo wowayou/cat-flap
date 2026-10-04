@@ -161,7 +161,7 @@ export class Renderer {
       this.drawGhosts(ctx, game, alpha, paused ? 0 : dt);
       this.drawNameTags(ctx); // over the ghosts, under the player: your own cat is never hidden
     }
-    this.cat.update(game, dt, this.animTime);
+    this.cat.update(game, dt, this.animTime, this.reducedMotion);
     const flipLift = deathLift(game);
     drawCat(ctx, CAT.x, catY - flipLift, this.cat.pose);
     if (game.cat.landed) this.drawDizzy(ctx, catY - flipLift);
@@ -180,6 +180,9 @@ export class Renderer {
   private drawGhosts(ctx: CanvasRenderingContext2D, player: Game, alpha: number, dt: number): void {
     const squad = this.squad;
     if (!squad) return;
+    // Paused replays retain their last two positions while the render-loop
+    // fraction keeps changing. Settle on the current tick, like the player.
+    if (player.phase === 'paused') alpha = 1;
     if (squad.generation !== this.ghostGeneration) {
       this.ghostGeneration = squad.generation;
       for (const a of this.ghostAnims) a.reset();
@@ -190,13 +193,13 @@ export class Renderer {
       if (!g) continue;
       const x = squad.screenX(r, player, alpha);
       const anim = this.ghostAnims[i];
-      anim.update(g, dt, this.animTime);
+      if (player.phase !== 'paused') anim.update(g, dt, this.animTime, this.reducedMotion);
       if (x < -GHOST_MARGIN || x > WORLD.width + GHOST_MARGIN) continue;
       const y = g.cat.prevY + (g.cat.y - g.cat.prevY) * alpha - deathLift(g);
       drawGhostCat(ctx, x, y, anim.pose, GHOST_COLORS[r.coat % GHOST_COLORS.length], GHOST_ALPHA);
       const tag = this.spareTags.pop() ?? { x: 0, y: 0, w: 0, name: '' };
       tag.x = x;
-      tag.y = y - 32;
+      tag.y = y - 38;
       tag.name = r.ghost.name;
       this.tags.push(tag);
     }

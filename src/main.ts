@@ -7,6 +7,7 @@ import { TIMING } from './game/config.ts';
 import { Game, MAX_RECORDED_FLAPS, type GameEvent, type RunRecord } from './game/Game.ts';
 import { FixedStepLoop } from './game/loop.ts';
 import { bindInput } from './input.ts';
+import { loadCatArt } from './render/cat.ts';
 import { GHOST_COLORS, GINGER } from './render/palette.ts';
 import { POPUP_FONT, Renderer } from './render/Renderer.ts';
 import { cleanName, decodeChallenge, encodeChallenge, mergeGhosts, verifyGhosts, type Ghost } from './social/link.ts';
@@ -33,6 +34,8 @@ const store = new SettingsStore(browserStorage());
 const settings = store.load();
 let best = settings.best;
 const strings = pickStrings(navigator.languages ?? [navigator.language]);
+const artStatus = document.getElementById('art-status')!;
+artStatus.querySelector('p')!.textContent = strings.loading;
 const pid = store.playerId();
 
 const game = new Game();
@@ -139,13 +142,6 @@ async function share(): Promise<void> {
     window.prompt(strings.copyPrompt, url.href);
   }
 }
-
-bindInput(app, window, {
-  primary: () => game.flap(),
-  togglePause: () => game.togglePause(),
-  toggleSound,
-  gesture: () => audio.unlock(),
-});
 
 // `?bot` lets the autopilot play (a demo, and how e2e tests reach a score).
 // `?bot=5` stops tapping at 5 points so the run ends there.
@@ -260,9 +256,33 @@ function frame(now: number): void {
 const link = params.get('c');
 if (link) openLink(link);
 
-// Start drawing straight away; ask for the display font early so the canvas "+1" pop-ups get it.
-requestAnimationFrame((t) => {
-  last = t;
-  frame(t);
+// Enable play only once the character is decoded. A failed asset request
+// leaves an explicit retry action, never a playable scene with an invisible cat.
+void loadCatArt().then(() => {
+  // Establish the first screen before revealing it, avoiding transitions
+  // from uninitialized overlays while the image is being decoded.
+  renderer.render(game, 0, 0);
+  hud.sync(game, best);
+  artStatus.hidden = true;
+  app.inert = false;
+  app.removeAttribute('aria-busy');
+  bindInput(app, window, {
+    primary: () => game.flap(),
+    togglePause: () => game.togglePause(),
+    toggleSound,
+    gesture: () => audio.unlock(),
+  });
+  requestAnimationFrame((t) => {
+    last = t;
+    frame(t);
+  });
+}).catch((error: unknown) => {
+  console.error('Character artwork failed to load', error);
+  artStatus.querySelector('p')!.textContent = strings.artLoadFailed;
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.textContent = strings.reload;
+  retry.addEventListener('click', () => location.reload());
+  artStatus.append(retry);
 });
 document.fonts?.load(POPUP_FONT).catch(() => {});

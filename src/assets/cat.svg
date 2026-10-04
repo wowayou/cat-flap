@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="160" viewBox="0 0 384 320" shape-rendering="crispEdges">
+  <title>Cat Flap — brave pixel flyer, layered character atlas</title>
+  <desc>Hand-drawn on a two-unit pixel grid: flat colours, no strokes or gradients. Each cell is 96 by 80, pivot 48,40. Rows: body/head/ear/tail; paw/far paw/open eyes/blink; wide eyes/dizzy eyes/smile/gasp; tongue/scarf/cape/cape wave.</desc>
+  <g id="body" transform="translate(48 40)">
+    <path fill="#493047" d="M8-14H-12V-12H-20V-8H-24V-4H-26V6H-22V10H-16V14H-8V16H6V14H12V10H16V4H18V-4H14V-10H8Z"/>
+    <path fill="#efa044" d="M6-12H-12V-10H-18V-6H-22V-2H-24V4H-20V8H-14V12H-6V14H6V12H10V8H14V2H16V-2H12V-8H6Z"/>
+    <path fill="#ffd080" d="M-18-8H-10V-10H4V-6H-10V-4H-18Z"/>
+    <path fill="#c96d2e" d="M-20 4H-12V8H8V4H14V8H10V12H6V14H-6V12H-14V8H-20Z"/>
+    <path fill="#fff2d9" d="M6-2H12V4H10V10H4V12H-6V10H-12V8H-16V4H-8V2H0V0H6Z"/>
+    <path fill="#c96d2e" d="M-16-10H-12V-4H-16ZM-8-12H-4V-6H-8Z"/>
+  </g>
+  <g id="head" transform="translate(144 40)">
+    <path fill="#493047" d="M4-24H20V-22H24V-18H28V-10H30V-4H32V2H28V6H24V10H16V12H6V10H0V6H-4V2H-6V-2H-4V-14H-2V-20H4Z"/>
+    <path fill="#efa044" d="M4-22H20V-20H24V-16H26V-8H28V-2H30V0H26V4H22V8H16V10H6V8H2V4H-2V0H-4V-2H-2V-14H0V-18H4Z"/>
+    <path fill="#ffd080" d="M4-20H18V-18H22V-12H18V-14H8V-12H2V-8H0V-16H4Z"/>
+    <path fill="#fff2d9" d="M10-2H16V0H22V-2H28V2H24V6H20V8H8V6H4V4H0V0H6V-2Z"/>
+    <path fill="#c96d2e" d="M10-22H14V-16H10ZM18-22H22V-18H18ZM-2-8H2V-6H-2ZM-2-4H2V-2H-2Z"/>
+  </g>
+  <g id="ear" transform="translate(240 40)">
+    <path fill="#493047" d="M-8 4V-14H-4V-12H0V-8H4V-4H8V4Z"/>
+    <path fill="#ffd080" d="M-6 2V-10H-4V-8H0V-4H4V2Z"/>
+    <path fill="#df8a78" d="M-4 0V-6H-2V-2H2V0Z"/>
+  </g>
+  <g id="tail" transform="translate(336 40)">
+    <path fill="#493047" d="M4-4H-6V-6H-10V-12H-12V-14H-20V-12H-22V-4H-20V2H-16V6H-10V8H4Z"/>
+    <path fill="#efa044" d="M2-2H-8V-4H-12V-12H-18V-10H-20V-4H-18V0H-14V4H-8V6H2Z"/>
+    <path fill="#ffd080" d="M-18-10H-14V-6H-18Z"/>
+    <path fill="#c96d2e" d="M-20-4H-14V0H-18V-2H-20ZM-10 2H-6V6H-10Z"/>
+  </g>
+  <g id="paw" transform="translate(48 120)">
+    <path fill="#493047" d="M-4-4H12V-6H18V-4H20V-2H22V4H20V6H14V8H10V6H-4Z"/>
+    <path fill="#efa044" d="M-2-2H12V0H16V4H-2Z"/>
+    <path fill="#ffd080" d="M-2-2H10V0H-2Z"/>
+    <path fill="#fff2d9" d="M14-4H18V-2H20V4H18V6H14V4H12V-2H14Z"/>
+    <path fill="#e5c69c" d="M16 2H20V4H18V6H14V4H16Z"/>
+  </g>
+  <g id="far-paw" transform="translate(144 120)">
+    <path fill="#493047" d="M-4-4H12V-6H18V-4H20V-2H22V4H20V6H14V8H10V6H-4Z"/>
+    <path fill="#c96d2e" d="M-2-2H12V0H16V4H-2Z"/>
+    <path fill="#e5c69c" d="M14-4H18V-2H20V4H18V6H14V4H12V-2H14Z"/>
+  </g>
+  <g id="eyes-open" transform="translate(240 120)">
+    <path fill="#493047" d="M4-14H10V-12H16V-4H14V-2H8V-4H4ZM20-14H26V-16H28V-6H26V-4H22V-6H20Z"/>
+    <path fill="#fff2d9" d="M6-10H14V-4H8V-6H6ZM22-12H26V-6H22Z"/>
+    <path fill="#35685d" d="M10-10H14V-4H10ZM24-12H26V-6H24Z"/>
+    <path fill="#493047" d="M12-8H14V-4H12ZM24-10H26V-6H24Z"/>
+    <path fill="#fff2d9" d="M10-10H12V-8H10ZM24-12H26V-10H24Z"/>
+  </g>
+  <g id="eyes-blink" transform="translate(336 120)" fill="#493047">
+    <path d="M4-8H8V-6H12V-8H16V-4H6V-6H4ZM20-10H22V-8H26V-10H28V-6H22V-8H20Z"/>
+  </g>
+  <g id="eyes-wide" transform="translate(48 200)">
+    <path fill="#493047" d="M6-14H14V-12H16V-4H14V-2H6V-4H4V-12H6ZM22-16H26V-14H28V-6H26V-4H22V-6H20V-14H22Z"/>
+    <path fill="#fff2d9" d="M6-12H14V-4H6ZM22-14H26V-6H22Z"/>
+    <path fill="#35685d" d="M10-10H14V-4H10ZM24-12H26V-6H24Z"/>
+    <path fill="#493047" d="M12-8H14V-4H12ZM24-10H26V-6H24Z"/>
+  </g>
+  <g id="eyes-dead" transform="translate(144 200)" fill="#493047">
+    <path d="M4-12H8V-10H10V-8H14V-6H10V-4H8V-2H4V-4H6V-6H8V-8H6V-10H4ZM26-14H28V-12H26V-10H24V-8H26V-6H28V-4H24V-6H22V-8H20V-10H22V-12H26Z"/>
+  </g>
+  <g id="mouth-smile" transform="translate(240 200)">
+    <path fill="#82494b" d="M22-2H28V0H26V2H24V0H22Z"/>
+    <path fill="#493047" d="M24 2H26V4H22V6H16V4H14V2H16V4H22V2Z"/>
+  </g>
+  <g id="mouth-open" transform="translate(336 200)">
+    <path fill="#82494b" d="M22-2H28V0H26V2H24V0H22Z"/>
+    <path fill="#493047" d="M18 2H22V4H24V8H18Z"/>
+    <path fill="#df8a78" d="M20 6H22V8H20Z"/>
+  </g>
+  <g id="mouth-tongue" transform="translate(48 280)">
+    <path fill="#82494b" d="M22-2H28V0H26V2H24V0H22Z"/>
+    <path fill="#493047" d="M14 2H16V4H22V2H24V6H22V10H18V6H14Z"/>
+    <path fill="#df8a78" d="M18 4H22V8H18Z"/>
+  </g>
+  <g id="scarf" transform="translate(144 280)">
+    <path fill="#493047" d="M-6 2H-2V4H2V6H8V8H14V12H10V14H4V12H0V10H-4V6H-6Z"/>
+    <path fill="#dc484c" d="M-4 4H-2V6H2V8H8V10H12V12H6V10H0V8H-4Z"/>
+    <path fill="#ff9380" d="M-2 4H0V6H4V8H0V6H-2Z"/>
+    <path fill="#493047" d="M4 8H10V14H4Z"/>
+    <path fill="#ffd080" d="M6 10H8V12H6Z"/>
+  </g>
+  <g id="cape" transform="translate(240 280)">
+    <path fill="#493047" d="M2 4H-12V6H-26V4H-36V2H-40V-2H-34V-6H-36V-8H-40V-12H-32V-16H-18V-14H-10V-10H-4V-6H2Z"/>
+    <path fill="#dc484c" d="M0 2H-14V4H-26V2H-36V0H-32V-4H-30V-6H-34V-10H-36V-12H-30V-14H-18V-12H-10V-8H-4V-4H0Z"/>
+    <path fill="#ff9380" d="M-32-12H-18V-10H-12V-8H-8V-6H-14V-8H-22V-10H-32Z"/>
+    <path fill="#b72e43" d="M-30-2H-20V0H-6V2H-14V4H-26V2H-36V0H-30Z"/>
+  </g>
+  <g id="cape-wave" transform="translate(336 280)">
+    <path fill="#493047" d="M2 4H-10V6H-22V8H-32V6H-40V2H-34V-2H-36V-4H-40V-8H-36V-12H-26V-14H-16V-12H-10V-10H-4V-6H2Z"/>
+    <path fill="#dc484c" d="M0 2H-10V4H-22V6H-32V4H-36V2H-32V0H-30V-4H-34V-6H-36V-8H-34V-10H-26V-12H-16V-10H-10V-8H-4V-4H0Z"/>
+    <path fill="#ff9380" d="M-34-8H-26V-10H-18V-8H-12V-6H-8V-4H-14V-6H-24V-8H-28V-6H-34Z"/>
+    <path fill="#b72e43" d="M-30 0H-22V2H-6V4H-22V6H-32V4H-36V2H-30Z"/>
+  </g>
+</svg>

@@ -2,6 +2,9 @@
 export interface Strings {
   lang: string;
   title: string;
+  loading: string;
+  artLoadFailed: string;
+  reload: string;
   tagline: string;
   startTouch: string;
   startMouse: string;
@@ -48,6 +51,9 @@ export interface Strings {
 const zh: Strings = {
   lang: 'zh-CN',
   title: 'Cat Flap',
+  loading: '小猫准备起飞…',
+  artLoadFailed: '小猫还没准备好，请重新加载。',
+  reload: '重新加载',
   tagline: '点一下，扇一下。',
   startTouch: '轻点屏幕起飞',
   startMouse: '点击鼠标起飞',
@@ -95,6 +101,9 @@ const zh: Strings = {
 const en: Strings = {
   lang: 'en',
   title: 'Cat Flap',
+  loading: 'Getting ready to fly…',
+  artLoadFailed: 'The cat could not load. Please try again.',
+  reload: 'Reload',
   tagline: 'Tap to flap.',
   startTouch: 'Tap to take off',
   startMouse: 'Click to take off',

@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
+    "art-assets": "node tools/art-assets.mjs",
     "calibrate": "node tools/calibrate.ts"
   },
   "type": "module",
