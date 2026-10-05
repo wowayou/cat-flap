@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAT, DIFFICULTY, OBSTACLE, PHYSICS, TIMING, WORLD } from '../src/game/config.ts';
+import { CAT, DIFFICULTY, GLIDE, OBSTACLE, PHYSICS, TIMING, WORLD } from '../src/game/config.ts';
 import { Game, type GameEvent } from '../src/game/Game.ts';
 import { DT, puppetStep, run, runUntil } from './helpers.ts';
 
@@ -230,5 +230,79 @@ describe('resources and determinism', () => {
       return log;
     };
     expect(play()).toEqual(play());
+  });
+});
+
+describe('cape energy', () => {
+  /** Take off holding, and keep holding. */
+  function heldFlight(): Game {
+    const game = new Game(4);
+    game.setHold(true);
+    game.flap();
+    return game;
+  }
+
+  it('drains while gliding, empties, and the cape stays shut until the next flap', () => {
+    const game = heldFlight();
+    const types: string[] = [];
+    let glidingSteps = 0;
+    for (let i = 0; i < 120 * 2.5 && !game.cat.spent; i++) {
+      game.step(DT);
+      if (game.cat.gliding) glidingSteps++;
+      game.consumeEvents((e) => types.push(e.type));
+    }
+    // A full cape glides for GLIDE.duration (give or take a step).
+    expect(game.phase).toBe('playing');
+    expect(Math.abs(glidingSteps / 120 - GLIDE.duration)).toBeLessThan(2 * DT);
+    expect(types.filter((t) => t === 'glide')).toHaveLength(1);
+    expect(types).toContain('capeEmpty');
+    // Still holding and falling, with energy to spare: the cape stays shut.
+    game.cat.energy = 0.5;
+    game.cat.y = game.upcomingObstacle()?.gapY ?? CAT.startY;
+    game.cat.vy = 0;
+    game.step(DT);
+    expect(game.phase).toBe('playing');
+    expect(game.cat.gliding).toBe(false);
+
+    // The emptied cape waits for a fresh press.
+    game.flap();
+    expect(game.cat.spent).toBe(false);
+  });
+
+  it('refills slowly while not gliding, and every run starts full', () => {
+    const game = heldFlight();
+    run(game, 1.2);
+    const low = game.cat.energy;
+    expect(low).toBeLessThan(0.7);
+    game.setHold(false);
+    game.flap();
+    run(game, 0.3);
+    expect(game.cat.energy).toBeCloseTo(low + GLIDE.regen * 0.3, 2);
+    game.cat.y = 1000; // crash
+    runUntil(game, () => game.phase === 'gameover', 10);
+    run(game, TIMING.retryLockout);
+    game.flap();
+    expect(game.cat.energy).toBe(1);
+  });
+
+  it('records only holds that reach past the top of a flap', () => {
+    const tapper = new Game(9);
+    tapper.flap();
+    tapper.setHold(true); // a slow tap: held for 0.25s, still rising when let go
+    run(tapper, 0.25);
+    tapper.setHold(false);
+    run(tapper, 0.5);
+    expect(tapper.record.holds).toEqual([]);
+
+    const glider = new Game(9);
+    glider.setHold(true);
+    glider.flap();
+    run(glider, 0.6);
+    glider.setHold(false);
+    run(glider, 0.2);
+    expect(glider.record.holds).toHaveLength(2);
+    const [on, off] = glider.record.holds;
+    expect(on).toBeGreaterThan(0.25 * 120); // when the rise topped out
+    expect(off).toBe(Math.round(0.6 * 120));
   });
 });

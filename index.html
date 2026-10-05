@@ -20,10 +20,13 @@
 
       <div id="frame">
         <div class="hud">
-          <button type="button" class="icon-btn pause-btn" data-action="pause">
-            <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="3.6" height="14" rx="1.4" /><rect x="13.9" y="5" width="3.6" height="14" rx="1.4" /></svg>
-            <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" /></svg>
-          </button>
+          <div class="hud-left">
+            <button type="button" class="icon-btn pause-btn" data-action="pause">
+              <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="3.6" height="14" rx="1.4" /><rect x="13.9" y="5" width="3.6" height="14" rx="1.4" /></svg>
+              <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" /></svg>
+            </button>
+            <p class="fish-count" aria-hidden="true"><i class="fish-icon"></i><b>0</b></p>
+          </div>
           <output class="score" aria-hidden="true">0</output>
           <p class="beat-best" aria-hidden="true"></p>
           <p class="overtake" aria-hidden="true"></p>
@@ -41,8 +44,21 @@
             </div>
           </div>
           <p class="tagline"></p>
-          <p class="start-hint"><span class="start-main"></span> <span class="start-keys"></span></p>
-          <p class="ready-best"><span class="label"></span> <b class="value">0</b></p>
+          <div class="map-picker">
+            <button type="button" class="icon-btn map-btn map-prev">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5" /></svg>
+            </button>
+            <div class="map-card" aria-live="polite">
+              <p class="map-name"></p>
+              <p class="map-hint"></p>
+              <p class="ready-best"><span class="label"></span> <b class="value">0</b> <span class="stars"></span></p>
+            </div>
+            <button type="button" class="icon-btn map-btn map-next">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5" /></svg>
+            </button>
+            <p class="map-dots" aria-hidden="true"></p>
+          </div>
+          <p class="start-hint"><span class="start-main"></span> <span class="start-keys"></span><span class="start-glide"></span></p>
           <div class="challenge" hidden>
             <p class="challenge-heading"></p>
             <p class="challenge-hint"></p>
@@ -59,11 +75,13 @@
 
         <section class="screen over-screen" role="status">
           <div class="card">
+            <p class="map-tab"><span class="final-map"></span> <span class="final-stars stars"></span></p>
             <h2 class="over-title"></h2>
             <p class="quip"></p>
             <dl class="stats">
               <div><dt class="score-label"></dt><dd class="final-score">0</dd></div>
               <div><dt class="best-label"></dt><dd class="final-best">0</dd></div>
+              <div><dt class="fish-label"></dt><dd class="final-fish">0</dd></div>
             </dl>
             <p class="new-best"></p>
             <div class="share-row">

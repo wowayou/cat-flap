@@ -1,8 +1,9 @@
 import { circleHitsObstacle } from './collision.ts';
-import { CAT, DIFFICULTY, OBSTACLE, PHYSICS, TIMING, WORLD } from './config.ts';
+import { CAT, FISH, GLIDE, OBSTACLE, TIMING, WORLD } from './config.ts';
 import { speedForScore } from './difficulty.ts';
-import { createObstaclePool, planNextGap, type Obstacle } from './obstacles.ts';
-import { integrate } from './physics.ts';
+import { MAPS, type MapId, type MapRules } from './maps.ts';
+import { bobbedGapY, createObstaclePool, fishY, planFish, planObstacle, type Obstacle } from './obstacles.ts';
+import { glide, integrate } from './physics.ts';
 import { createRng, randomSeed, type Rng } from './rng.ts';
 
 /**
@@ -18,6 +19,12 @@ export type DeathCause = 'obstacle' | 'ground';
 export type GameEvent =
   | { type: 'start' }
   | { type: 'flap' }
+  /** The cape opened into a glide. */
+  | { type: 'glide' }
+  /** The cape ran out of energy mid-glide. */
+  | { type: 'capeEmpty' }
+  /** A fish snack was eaten at world (x, y). */
+  | { type: 'fish'; x: number; y: number }
   | { type: 'score'; score: number }
   | { type: 'bonk' }
   | { type: 'hit'; cause: DeathCause }
@@ -35,20 +42,30 @@ export interface Cat {
   /** y at the start of the latest step, for render interpolation. */
   prevY: number;
   landed: boolean;
+  /** Cape energy, 0–1: a full cape glides for `GLIDE.duration` seconds. */
+  energy: number;
+  /** Gliding during the latest step. */
+  gliding: boolean;
+  /** The cape emptied during this hold: it stays shut until the next flap. */
+  spent: boolean;
   /** Sim times of the latest events this run (−Infinity when they haven't happened). */
   flapAt: number;
   bonkAt: number;
   deathAt: number;
   landAt: number;
+  fishAt: number;
 }
 
 /**
- * Everything needed to replay a run exactly: the seed, where the run began,
- * and the playing-step index of every flap (the first, at 0, is the take-off).
- * The simulation is fixed-step and uses only IEEE-exact arithmetic, so the
- * same record replays bit-for-bit on any device (see `social/replay.ts`).
+ * Everything needed to replay a run exactly: the map and seed, where the run
+ * began, the playing-step index of every flap (the first, at 0, is the
+ * take-off), and when the player held on to glide. The simulation is
+ * fixed-step and uses only IEEE-exact arithmetic, so the same record replays
+ * bit-for-bit on any device (see `social/replay.ts`).
  */
 export interface RunRecord {
+  /** The map flown: its rules shape the course and the physics. */
+  map: MapId;
   seed: number;
   /** `scroll` when the run started. */
   startScroll: number;
@@ -56,9 +73,18 @@ export interface RunRecord {
   startY: number;
   /** Playing-step count at each flap, non-decreasing, first is 0. */
   flaps: number[];
+  /**
+   * Playing-step counts at which "holding on past the top of a flap" switched
+   * on (even entries) or off (odd entries), strictly increasing. Only that
+   * matters to the physics, so a run of ordinary taps records none at all.
+   */
+  holds: number[];
 }
 
-/** Longest run a record keeps flaps for (≈ 1.5 hours of frantic tapping); later flaps aren't recorded. */
+/** Salt for the fish stream's seed. */
+const FISH_STREAM = 0x5eaf00d;
+
+/** Longest run a record keeps inputs for (≈ 1.5 hours of frantic tapping); a longer run can't be replayed. */
 export const MAX_RECORDED_FLAPS = 30_000;
 
 export function readyHoverY(time: number): number {
@@ -77,8 +103,13 @@ export class Game {
   /** Seconds since the current phase began. */
   phaseTime = 0;
   score = 0;
+  /** Fish snacks eaten this run. */
+  fish = 0;
+  /** The map being flown and its rules. Change it with `setMap`. */
+  map: MapId = 'garden';
+  rules: MapRules = MAPS.garden;
   /** Current scroll speed (px/s). */
-  speed: number = DIFFICULTY.baseSpeed;
+  speed: number = MAPS.garden.difficulty.baseSpeed;
   /** World x of the screen's left edge. Obstacles live in world space; only this moves. */
   scroll = 0;
   prevScroll = 0;
@@ -92,23 +123,42 @@ export class Game {
   /** Simulation steps spent in PLAYING this run — the clock replays are keyed on. */
   runTicks = 0;
   /** The current (or last) run's inputs. */
-  readonly record: RunRecord = { seed: 0, startScroll: 0, startY: 0, flaps: [] };
+  readonly record: RunRecord = { map: 'garden', seed: 0, startScroll: 0, startY: 0, flaps: [], holds: [] };
   readonly cat: Cat = {
-    y: CAT.startY, vy: 0, prevY: CAT.startY, landed: false,
-    flapAt: -Infinity, bonkAt: -Infinity, deathAt: -Infinity, landAt: -Infinity,
+    y: CAT.startY, vy: 0, prevY: CAT.startY, landed: false, energy: 1, gliding: false, spent: false,
+    flapAt: -Infinity, bonkAt: -Infinity, deathAt: -Infinity, landAt: -Infinity, fishAt: -Infinity,
   };
+  /**
+   * Whether the button is held down right now (any device). Set it with
+   * `setHold`; the simulation reads it at the start of each step.
+   */
+  held = false;
   readonly obstacles: Obstacle[] = createObstaclePool();
   /** Events emitted since the last `consumeEvents`. */
   readonly events: GameEvent[] = [];
 
   private rng: Rng = createRng(0);
+  /** Fish placement has its own stream, so the posts of a seed don't depend on it. */
+  private fishRng: Rng = createRng(0);
   private nextSpawnX = Infinity;
   private spawned = 0;
   private lastGapY: number = CAT.startY;
+  private lastDrift = 0;
+  /** The glide intent the latest step used (what `record.holds` toggles). */
+  private holding = false;
 
-  constructor(seed: number = randomSeed()) {
+  constructor(seed: number = randomSeed(), map: MapId = 'garden') {
+    this.map = map;
+    this.rules = MAPS[map];
     this.reset(seed);
     this.events.length = 0;
+  }
+
+  /** Switch maps (between runs): back to READY on the new map. */
+  setMap(map: MapId, seed?: number): void {
+    this.map = map;
+    this.rules = MAPS[map];
+    this.reset(seed);
   }
 
   /** World x of the cat's hitbox centre. */
@@ -144,6 +194,20 @@ export class Game {
     }
   }
 
+  /**
+   * The button went down (true) or was let go (false). A press still calls
+   * `flap()` too; this only adds the hold, which glides once the cat is
+   * past the top of its flap.
+   */
+  setHold(down: boolean): void {
+    this.held = down;
+  }
+
+  /** Whether the current record holds the whole run (so it can be shared and replayed). */
+  get recordComplete(): boolean {
+    return this.record.flaps.length < MAX_RECORDED_FLAPS && this.record.holds.length < MAX_RECORDED_FLAPS;
+  }
+
   /** Pause if playing (used for tab-hide / focus loss). */
   pause(): void {
     if (this.phase !== 'playing') return;
@@ -170,24 +234,33 @@ export class Game {
   reset(seed?: number): void {
     this.seed = seed ?? this.fixedSeed ?? ((this.rng() * 0x100000000) >>> 0);
     this.rng = createRng(this.seed);
+    this.fishRng = createRng(this.seed ^ FISH_STREAM);
     for (const o of this.obstacles) o.active = false;
     this.score = 0;
-    this.speed = DIFFICULTY.baseSpeed;
+    this.fish = 0;
+    this.speed = this.rules.difficulty.baseSpeed;
     this.spawned = 0;
     this.lastGapY = CAT.startY;
+    this.lastDrift = 0;
     this.nextSpawnX = Infinity;
     this.deathCause = null;
     this.countdown = 0;
     this.runTicks = 0;
+    this.record.map = this.map;
     this.record.seed = this.seed;
     this.record.flaps.length = 0;
+    this.record.holds.length = 0;
+    this.holding = false;
 
     const cat = this.cat;
     cat.y = readyHoverY(this.time);
     cat.prevY = cat.y;
     cat.vy = 0;
     cat.landed = false;
-    cat.flapAt = cat.bonkAt = cat.deathAt = cat.landAt = -Infinity;
+    cat.energy = 1;
+    cat.gliding = false;
+    cat.spent = false;
+    cat.flapAt = cat.bonkAt = cat.deathAt = cat.landAt = cat.fishAt = -Infinity;
 
     this.setPhase('ready');
     this.emit({ type: 'reset' });
@@ -201,7 +274,7 @@ export class Game {
 
     switch (this.phase) {
       case 'ready':
-        this.scroll += DIFFICULTY.baseSpeed * dt;
+        this.scroll += this.rules.difficulty.baseSpeed * dt;
         this.cat.y = readyHoverY(this.time);
         break;
       case 'playing':
@@ -236,7 +309,7 @@ export class Game {
     const clearX = this.catWorldX - CAT.hitboxRadius;
     let best: Obstacle | null = null;
     for (const o of this.obstacles) {
-      if (!o.active || o.x + OBSTACLE.capWidth < clearX) continue;
+      if (!o.active || o.x + o.width < clearX) continue;
       if (!best || o.x < best.x) best = o;
     }
     return best;
@@ -246,12 +319,20 @@ export class Game {
     const cat = this.cat;
     const r = CAT.hitboxRadius;
 
+    // Only "held past the top of a flap" changes anything, so that is what is recorded.
+    const holding = this.held && cat.vy >= 0;
+    if (holding !== this.holding) {
+      this.holding = holding;
+      if (this.record.holds.length < MAX_RECORDED_FLAPS) this.record.holds.push(this.runTicks);
+    }
+
     this.runTicks++;
-    this.speed = speedForScore(this.score);
+    this.speed = speedForScore(this.score, this.rules.difficulty);
     this.scroll += this.speed * dt;
-    integrate(cat, dt);
+    this.fly(holding, dt);
     this.clampToCeiling();
     this.spawnAndRecycle();
+    this.bobGaps();
 
     if (cat.y + r >= WORLD.groundY) {
       this.die('ground');
@@ -264,10 +345,11 @@ export class Game {
         return;
       }
     }
+    this.eatFish();
     // A point is awarded once the whole hitbox is past the obstacle, so a
     // point can never be followed by a crash into the same obstacle.
     for (const o of this.obstacles) {
-      if (o.active && !o.scored && cx - r > o.x + OBSTACLE.capWidth) {
+      if (o.active && !o.scored && cx - r > o.x + o.width) {
         o.scored = true;
         this.score++;
         this.emit({ type: 'score', score: this.score });
@@ -275,10 +357,46 @@ export class Game {
     }
   }
 
+  private eatFish(): void {
+    const cat = this.cat;
+    const cx = this.catWorldX;
+    const reach = CAT.hitboxRadius + FISH.radius;
+    for (const o of this.obstacles) {
+      if (!o.active || !o.fish || o.fishTaken) continue;
+      const dx = o.x + o.fishDx - cx;
+      const dy = fishY(o) - cat.y;
+      if (dx * dx + dy * dy >= reach * reach) continue;
+      o.fishTaken = true;
+      this.fish++;
+      cat.fishAt = this.time;
+      cat.energy = Math.min(1, cat.energy + FISH.energy);
+      this.emit({ type: 'fish', x: o.x + o.fishDx, y: fishY(o) });
+    }
+  }
+
+  /** Vertical motion for one playing step: glide while holding on with cape energy left, otherwise fall. */
+  private fly(holding: boolean, dt: number): void {
+    const cat = this.cat;
+    const gliding = holding && !cat.spent && cat.energy >= (cat.gliding ? 0 : GLIDE.minToOpen);
+    if (gliding && !cat.gliding) this.emit({ type: 'glide' });
+    cat.gliding = gliding;
+    if (gliding) {
+      glide(cat, dt, this.rules.physics);
+      cat.energy = Math.max(0, cat.energy - dt / GLIDE.duration);
+      if (cat.energy === 0) {
+        cat.spent = true;
+        this.emit({ type: 'capeEmpty' });
+      }
+    } else {
+      integrate(cat, dt, this.rules.physics);
+      cat.energy = Math.min(1, cat.energy + GLIDE.regen * dt);
+    }
+  }
+
   private stepDying(dt: number): void {
     const cat = this.cat;
     if (!cat.landed) {
-      integrate(cat, dt);
+      integrate(cat, dt, this.rules.physics);
       this.clampToCeiling();
       if (cat.y + CAT.hitboxRadius >= WORLD.groundY) this.land();
     } else if (this.time - cat.landAt >= TIMING.gameOverDelay) {
@@ -302,7 +420,7 @@ export class Game {
 
   private start(): void {
     this.setPhase('playing');
-    this.nextSpawnX = this.scroll + CAT.x + OBSTACLE.firstDistance;
+    this.nextSpawnX = this.scroll + CAT.x + this.rules.course.firstDistance;
     this.record.startScroll = this.scroll;
     this.record.startY = this.cat.y;
     this.emit({ type: 'start' });
@@ -311,8 +429,9 @@ export class Game {
   private doFlap(): void {
     const flaps = this.record.flaps;
     if (flaps.length < MAX_RECORDED_FLAPS && flaps[flaps.length - 1] !== this.runTicks) flaps.push(this.runTicks);
-    this.cat.vy = PHYSICS.flapVelocity;
+    this.cat.vy = this.rules.physics.flapVelocity;
     this.cat.flapAt = this.time;
+    this.cat.spent = false; // a fresh press re-arms an emptied cape
     this.emit({ type: 'flap' });
   }
 
@@ -320,13 +439,14 @@ export class Game {
     const cat = this.cat;
     this.deathCause = cause;
     cat.deathAt = this.time;
+    cat.gliding = false;
     this.setPhase('dying');
     this.emit({ type: 'hit', cause });
     if (cause === 'ground') {
       this.land();
     } else {
       // Rising hard into a cap: stop dead and drop. Otherwise: a little knock-back hop.
-      cat.vy = cat.vy < -100 ? 0 : PHYSICS.deathHopVelocity;
+      cat.vy = cat.vy < -100 ? 0 : this.rules.physics.deathHopVelocity;
     }
   }
 
@@ -340,17 +460,27 @@ export class Game {
   }
 
   private spawnAndRecycle(): void {
-    const offLeft = this.scroll - OBSTACLE.capWidth - 8;
     for (const o of this.obstacles) {
-      if (o.active && o.x < offLeft) o.active = false;
+      if (o.active && o.x < this.scroll - o.width - 8) o.active = false;
     }
+    // The clear run after an obstacle is the same whatever its width. (Width + clear
+    // is summed first: for the standard cap it is exactly the classic spacing.)
+    const clear = this.rules.course.spacing - OBSTACLE.capWidth;
     while (this.nextSpawnX <= this.scroll + WORLD.width + OBSTACLE.spawnAhead) {
-      this.spawnAt(this.nextSpawnX);
-      this.nextSpawnX += OBSTACLE.spacing;
+      this.nextSpawnX += this.spawnAt(this.nextSpawnX) + clear;
     }
   }
 
-  private spawnAt(x: number): void {
+  /** Move bobbing gaps to where they are at the cat's current distance. */
+  private bobGaps(): void {
+    const cx = this.catWorldX;
+    for (const o of this.obstacles) {
+      if (o.active && o.amp > 0) o.gapY = bobbedGapY(o, cx);
+    }
+  }
+
+  /** Spawns the next obstacle with its left edge at `x`; returns its width. */
+  private spawnAt(x: number): number {
     let slot: Obstacle | null = null;
     for (const o of this.obstacles) {
       if (!o.active) {
@@ -363,14 +493,27 @@ export class Game {
       slot = this.obstacles[0];
       for (const o of this.obstacles) if (o.x < slot.x) slot = o;
     }
-    const plan = planNextGap(this.lastGapY, this.spawned, this.score, this.rng);
+    const plan = planObstacle(this.lastGapY, this.lastDrift, this.spawned, this.score, this.rng, this.rules);
     slot.active = true;
     slot.scored = false;
     slot.index = this.spawned++;
     slot.x = x;
-    slot.gapY = plan.gapY;
+    slot.width = plan.width;
+    slot.passY = plan.gapY;
     slot.gap = plan.gap;
+    slot.amp = plan.amp;
+    slot.phase = plan.phase;
+    slot.wavelength = plan.wavelength;
+    slot.gapY = plan.amp > 0 ? bobbedGapY(slot, this.catWorldX) : plan.gapY;
+    const fish = planFish(plan, this.lastGapY, slot.index, this.rules.course.spacing, this.fishRng);
+    slot.fish = fish.fish;
+    slot.fishTaken = false;
+    slot.fishInGap = fish.fishInGap;
+    slot.fishDx = fish.fishDx;
+    slot.fishY = fish.fishY;
     this.lastGapY = plan.gapY;
+    this.lastDrift = plan.drift;
+    return plan.width;
   }
 
   private setPhase(phase: Phase): void {

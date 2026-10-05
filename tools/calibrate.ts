@@ -11,12 +11,17 @@
  * These are crude, but they move in the right direction and are consistent
  * across tuning changes, which is all a calibration rig needs.
  *
- *   npm run calibrate            # all profiles, 200 runs each
- *   npm run calibrate -- 500     # more runs
+ *   npm run calibrate                 # all profiles, 200 runs each, on every map
+ *   npm run calibrate -- 500          # more runs
+ *   npm run calibrate -- 200 moon     # one map
+ *
+ * Taps only, like the fairness model: the numbers say how hard a map is
+ * without the cape, which is the floor every player starts from.
  */
 import { Autopilot } from '../src/game/autopilot.ts';
 import { TIMING } from '../src/game/config.ts';
 import { Game } from '../src/game/Game.ts';
+import { MAP_IDS, isMapId, type MapId } from '../src/game/maps.ts';
 import { createRng } from '../src/game/rng.ts';
 
 interface Profile {
@@ -40,8 +45,8 @@ export const PROFILES: Profile[] = [
 const DT = 1 / TIMING.simHz;
 const CAP = 300;
 
-export function playOnce(seed: number, p: Profile): number {
-  const game = new Game(seed);
+export function playOnce(seed: number, p: Profile, map: MapId = 'garden'): number {
+  const game = new Game(seed, map);
   const brain = new Autopilot({ safety: p.safety });
   const rng = createRng(seed ^ 0x9e3779b9);
   const gauss = () => Math.sqrt(-2 * Math.log(Math.max(rng(), 1e-9))) * Math.cos(2 * Math.PI * rng());
@@ -76,17 +81,20 @@ function percentile(sorted: number[], p: number): number {
 declare const process: { argv: string[] } | undefined;
 if (typeof process !== 'undefined' && process.argv[1]?.endsWith('calibrate.ts')) {
   const runs = Number(process.argv[2] ?? 200);
+  const only = process.argv[3];
   console.log(`runs per profile: ${runs}   (scores capped at ${CAP})`);
-  console.log('profile        p10  median  p90   mean   ≥10    ≥25    ≥50');
-  for (const p of PROFILES) {
-    const scores: number[] = [];
-    for (let i = 0; i < runs; i++) scores.push(playOnce(1000 + i, p));
-    scores.sort((a, b) => a - b);
-    const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
-    const share = (t: number) => `${((scores.filter((s) => s >= t).length / runs) * 100).toFixed(0)}%`.padStart(5);
-    console.log(
-      `${p.name.padEnd(13)} ${String(percentile(scores, 0.1)).padStart(4)} ${String(percentile(scores, 0.5)).padStart(7)} ` +
-        `${String(percentile(scores, 0.9)).padStart(4)} ${mean.toFixed(1).padStart(6)}  ${share(10)}  ${share(25)}  ${share(50)}`,
-    );
+  for (const map of isMapId(only) ? [only] : MAP_IDS) {
+    console.log(`\n${map}\nprofile        p10  median  p90   mean   ≥10    ≥25    ≥50`);
+    for (const p of PROFILES) {
+      const scores: number[] = [];
+      for (let i = 0; i < runs; i++) scores.push(playOnce(1000 + i, p, map));
+      scores.sort((a, b) => a - b);
+      const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const share = (t: number) => `${((scores.filter((s) => s >= t).length / runs) * 100).toFixed(0)}%`.padStart(5);
+      console.log(
+        `${p.name.padEnd(13)} ${String(percentile(scores, 0.1)).padStart(4)} ${String(percentile(scores, 0.5)).padStart(7)} ` +
+          `${String(percentile(scores, 0.9)).padStart(4)} ${mean.toFixed(1).padStart(6)}  ${share(10)}  ${share(25)}  ${share(50)}`,
+      );
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { KEYS, parseBest, SettingsStore, type KeyValueStore } from '../src/storage/settings.ts';
+import { bestKey, KEYS, parseBest, SettingsStore, type KeyValueStore } from '../src/storage/settings.ts';
 
 function memory(initial: Record<string, string> = {}): KeyValueStore & { data: Record<string, string> } {
   const data = { ...initial };
@@ -72,5 +72,30 @@ describe('SettingsStore', () => {
   it('replaces a corrupted device id, and still works without storage', () => {
     expect(new SettingsStore(memory({ [KEYS.pid]: 'abc' })).playerId(() => 0)).toBe(1);
     expect(new SettingsStore(null).playerId(() => 0.25)).toBeGreaterThan(0);
+  });
+});
+
+describe('maps', () => {
+  it('keeps a best per map; the garden keeps the original key', () => {
+    const backing = memory({ [KEYS.best]: '31' });
+    const store = new SettingsStore(backing);
+    expect(store.loadBest('garden')).toBe(31);
+    expect(store.loadBest('moon')).toBe(0);
+    store.saveBest(12, 'moon');
+    store.saveBest(40);
+    const again = new SettingsStore(backing);
+    expect(again.loadBest('moon')).toBe(12);
+    expect(again.loadBest('garden')).toBe(40);
+    expect(again.load().best).toBe(40);
+    expect(backing.data[bestKey('moon')]).toBe('12');
+  });
+
+  it('remembers the map last picked, falling back to the garden', () => {
+    const backing = memory();
+    expect(new SettingsStore(backing).loadMap()).toBe('garden');
+    new SettingsStore(backing).saveMap('clouds');
+    expect(new SettingsStore(backing).loadMap()).toBe('clouds');
+    expect(new SettingsStore(memory({ [KEYS.map]: 'atlantis' })).loadMap()).toBe('garden');
+    expect(new SettingsStore(null).loadMap()).toBe('garden');
   });
 });

@@ -1,24 +1,35 @@
-import { CAT, DIFFICULTY, FAIRNESS, OBSTACLE, PHYSICS, TIMING, WORLD } from '../game/config.ts';
+import { CAT, FAIRNESS, FISH, GLIDE, OBSTACLE, TIMING, WORLD } from '../game/config.ts';
 import type { RunRecord } from '../game/Game.ts';
+import { MAP_IDS, MAPS, type MapId } from '../game/maps.ts';
 import { simulate } from './replay.ts';
 
 /*
- * Challenge links: `?c=<base64url>` carries a course seed and up to
+ * Challenge links: `?c=<base64url>` carries a map, a course seed and up to
  * MAX_GHOSTS recorded runs. Each person who plays and shares adds (or
  * improves) their own run, so a link passed around a group chat becomes an
  * asynchronous race of everyone who has flown it — no server needed.
  *
  * Binary layout (all integers unsigned LEB128 varints unless noted):
- *   u8 format · u16 sim signature · u32 seed · u8 ghost count
+ *   u8 format (2) · u16 sim signature · u8 map · u32 seed · u8 ghost count
  *   per ghost: u32 player id · u8 name byte length · UTF‑8 name · score ·
- *              f64 start scroll · f64 start y · flap count · flap deltas
+ *              f64 start scroll · f64 start y · flap count · flap deltas ·
+ *              hold count · hold deltas
+ * Format 1 (before maps and gliding) has no map byte and no holds: it is
+ * always the garden, whose rules haven't changed, so those links still work.
  */
 
 export const MAX_GHOSTS = 5;
 const MAX_NAME_CHARS = 12;
 /** Longest `c` value we accept; real links are far shorter (≈ 3 bytes per second of flight per ghost). */
 const MAX_LINK_CHARS = 16_000;
-const FORMAT = 1;
+const FORMAT = 2;
+const FORMAT_V1 = 1;
+/**
+ * The signature format‑1 links carry: the garden-only rules before maps and
+ * gliding existed. The garden still plays bit-for-bit by those rules (the
+ * cross-engine test in e2e/social.spec.ts replays a link recorded then).
+ */
+const SIGNATURE_V1 = 0xc59e;
 const MAX_NAME_BYTES = 48;
 
 export interface Ghost {
@@ -31,6 +42,7 @@ export interface Ghost {
 }
 
 export interface Challenge {
+  map: MapId;
   seed: number;
   ghosts: Ghost[];
 }
@@ -40,7 +52,7 @@ export interface Challenge {
  * retune changes it, so links recorded under other rules are recognised
  * instead of replaying ghosts through posts that moved.
  */
-export const SIM_SIGNATURE = fnv16(JSON.stringify([WORLD, CAT, PHYSICS, OBSTACLE, DIFFICULTY, FAIRNESS, TIMING.simHz]));
+export const SIM_SIGNATURE = fnv16(JSON.stringify([WORLD, CAT, OBSTACLE, MAP_IDS, MAPS, GLIDE, FISH, FAIRNESS, TIMING.simHz]));
 
 function fnv16(text: string): number {
   let h = 0x811c9dc5;
@@ -186,6 +198,7 @@ export function encodeChallenge(c: Challenge): string {
   const w = new Writer();
   w.u8(FORMAT);
   w.u16(SIM_SIGNATURE);
+  w.u8(MAP_IDS.indexOf(c.map));
   w.u32(c.seed >>> 0);
   const ghosts = c.ghosts.slice(0, MAX_GHOSTS);
   w.u8(ghosts.length);
@@ -199,12 +212,13 @@ export function encodeChallenge(c: Challenge): string {
     w.varint(g.score);
     w.f64(g.record.startScroll);
     w.f64(g.record.startY);
-    const flaps = g.record.flaps;
-    w.varint(flaps.length);
-    let prev = 0;
-    for (const f of flaps) {
-      w.varint(f - prev);
-      prev = f;
+    for (const ticks of [g.record.flaps, g.record.holds]) {
+      w.varint(ticks.length);
+      let prev = 0;
+      for (const t of ticks) {
+        w.varint(t - prev);
+        prev = t;
+      }
     }
   }
   return toBase64Url(w.done());
@@ -219,8 +233,11 @@ export function decodeChallenge(text: string): DecodeResult {
   if (!text || text.length > MAX_LINK_CHARS || !/^[A-Za-z0-9_-]+$/.test(text)) return { ok: false, reason: 'malformed' };
   try {
     const r = new Reader(fromBase64Url(text));
-    if (r.u8() !== FORMAT) return { ok: false, reason: 'outdated' };
-    if (r.u16() !== SIM_SIGNATURE) return { ok: false, reason: 'outdated' };
+    const format = r.u8();
+    if (format !== FORMAT && format !== FORMAT_V1) return { ok: false, reason: 'outdated' };
+    if (r.u16() !== (format === FORMAT ? SIM_SIGNATURE : SIGNATURE_V1)) return { ok: false, reason: 'outdated' };
+    const map = format === FORMAT ? MAP_IDS[r.u8()] : 'garden';
+    if (!map) return { ok: false, reason: 'malformed' };
     const seed = r.u32();
     const count = r.u8();
     if (count > MAX_GHOSTS) return { ok: false, reason: 'malformed' };
@@ -234,21 +251,29 @@ export function decodeChallenge(text: string): DecodeResult {
       const score = r.varint();
       const startScroll = r.f64();
       const startY = r.f64();
-      const n = r.varint();
-      if (n === 0 || n > MAX_LINK_CHARS) return { ok: false, reason: 'malformed' };
-      const flaps: number[] = [];
-      let t = 0;
-      for (let k = 0; k < n; k++) {
-        t += r.varint();
-        flaps.push(t);
-      }
-      ghosts.push({ pid, name, score, record: { seed, startScroll, startY, flaps } });
+      const flaps = readTicks(r);
+      const holds = format === FORMAT ? readTicks(r) : [];
+      if (!flaps || !holds || flaps.length === 0) return { ok: false, reason: 'malformed' };
+      ghosts.push({ pid, name, score, record: { map, seed, startScroll, startY, flaps, holds } });
     }
     if (!r.atEnd) return { ok: false, reason: 'malformed' };
-    return { ok: true, challenge: { seed, ghosts } };
+    return { ok: true, challenge: { map, seed, ghosts } };
   } catch {
     return { ok: false, reason: 'malformed' };
   }
+}
+
+/** A count and that many deltas, as absolute step counts (null if implausibly long). */
+function readTicks(r: Reader): number[] | null {
+  const n = r.varint();
+  if (n > MAX_LINK_CHARS) return null;
+  const ticks: number[] = [];
+  let t = 0;
+  for (let k = 0; k < n; k++) {
+    t += r.varint();
+    ticks.push(t);
+  }
+  return ticks;
 }
 
 /**

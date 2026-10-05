@@ -94,6 +94,51 @@ export const FAIRNESS = {
   collisionInset: 2,
 } as const;
 
+/**
+ * Holding the button past the top of a flap opens the cape: instead of
+ * accelerating down, the cat sinks at a gentle glide. Gliding spends cape
+ * energy, which refills slowly by itself and in bites from fish snacks.
+ * It is never required: every course is proven passable with taps alone
+ * (see physics.reachOver and tools/oracle.ts), and a tap is exactly the
+ * same flap with or without it.
+ */
+export const GLIDE = {
+  /** Steady sink rate while gliding (px/s). */
+  fallSpeed: 130,
+  /** How hard the open cape brakes a faster fall down to `fallSpeed` (px/s²). */
+  brake: 2400,
+  /** Seconds of gliding in a full cape. */
+  duration: 1.6,
+  /** Energy regained per second while not gliding (fraction of a full cape). */
+  regen: 0.15,
+  /** The cape only opens with at least this much energy, so an almost empty one doesn't flicker. */
+  minToOpen: 0.08,
+} as const;
+
+/**
+ * Fish snacks (小鱼干) hang along the course: some inside gaps (often near a
+ * cap, where it's risky), some in the open run between obstacles, off the
+ * straight line. Each one refills cape energy. They never change the score
+ * or the course: placement uses its own random stream, so a seed's posts
+ * are the same with or without them.
+ */
+export const FISH = {
+  /** Share of obstacles (after the first) that come with a fish. */
+  chance: 0.6,
+  /** Share of those fish that hang inside the gap (the rest float in the run before it). */
+  inGap: 0.6,
+  /** Pickup radius around a fish, added to the cat's hitbox radius. */
+  radius: 9,
+  /** Cape energy one fish gives back (fraction of a full cape). */
+  energy: 0.34,
+  /** Fish in a gap stay this far (plus the cat's radius) inside its edges, so taking one is risky but never fatal by itself. */
+  gapInset: 10,
+  /** How far a fish in the open run may sit off the line between the two gaps it lies between. */
+  wander: 56,
+  /** Fish in the open run stay this far from the ceiling and the wall. */
+  edgeMargin: 64,
+} as const;
+
 export const TIMING = {
   /** Fixed simulation rate. Identical on 30, 60, 120 and 144 Hz displays. */
   simHz: 120,

@@ -73,6 +73,15 @@ test('share a run → a friend flies with its ghost, passes it, and relays the c
   expect(errors).toEqual([]);
 });
 
+test('the share row stays above the middle of the screen, away from retry taps', async ({ page }) => {
+  await page.goto('/?bot=1');
+  await expectPhase(page, 'gameover', 30_000);
+  await expect(page.locator('.share-row')).toBeVisible();
+  const frame = (await page.locator('#frame').boundingBox())!;
+  const row = (await page.locator('.share-row').boundingBox())!;
+  expect(row.y + row.height).toBeLessThan(frame.y + frame.height / 2);
+});
+
 test('typing a name never flaps or retries', async ({ page }) => {
   await page.goto('/?bot=1');
   await expectPhase(page, 'gameover', 30_000);
@@ -140,6 +149,27 @@ test('runs recorded in one JS engine replay identically in every other', async (
   await expect(rows.nth(0)).toContainText('20');
   await expect(rows.nth(1)).toContainText('12');
   await expect(rows.nth(2)).toContainText('8');
+  await expect(page.locator('.toast')).not.toHaveClass(/show/);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * The current format: three gliding runs on the clouds, whose gaps bob (the
+ * motion uses floor/abs and a smoothstep, not Math.sin), recorded under Node
+ * (V8): 棉花糖 21, 云朵 14, Nimbus 9 on course 5151. Every engine must replay
+ * them to the same scores. Regenerate it after any retune, like GOLDEN.
+ */
+const GOLDEN_V2 = 'ArvdAgAAFB8DAAAD6AbkupHmnLUOQE4AAAAAAABAcVZMJ9u_-iEAYk5LSUFUTE1lSSBFZT5HOkpERzIySV5IYE8gSzdATmomJRhKFYQBDTwcJS1zFDkbSgZjCD0LmAEFxgELgAEELg2UAgZaEt8BFykPPx4AAAPvBk5pbWJ1cwlAb-AAAAAAAEBw6wNnJ5z3FwBjU0tIPlJRSVpVIE1mPjxLS0hKGSpcHiUYSxzKAQ4wJysVPAs-AVkgVSCTAQY4FyURhQEYMAKLASkAAAP2CeajieiKseezlhVAfvAAAAAAAEBw6wNnJ5zuMABjUktJPFRISVpIIEdNZ0g6XEJTGSBFcklgVThdIDxwSCFCR1JNZUpOVk0aIEhBTTolGEsbggEIfR42Cj4LlAMbTAo-FSUndxlzDTgjTw6bASdmK1IGNhu-ARy_AQpDJj8TNxk1IDYSdQJGDjMkKQU';
+
+test('gliding runs over bobbing gaps replay identically in every engine', async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto(`/?c=${GOLDEN_V2}`);
+  await expect(page.locator('#app')).toHaveAttribute('data-map', 'clouds');
+  const rows = page.locator('.challenge-list li');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText('21');
+  await expect(rows.nth(1)).toContainText('14');
+  await expect(rows.nth(2)).toContainText('9');
   await expect(page.locator('.toast')).not.toHaveClass(/show/);
   expect(errors).toEqual([]);
 });

@@ -20,7 +20,7 @@
 
 ```text
 技术上：模拟固定 120Hz 步长、只用 IEEE 精确运算，所以「种子 + 起飞高度 + 每次点击落在第几步」就能在任何设备上逐位重放整局。
-一局每秒约 2–3 字节，50 分的挑战链接也就一两百个字符。零运行时依赖，JS 约 24KB（gzip）。
+一局每秒约 2–3 字节，50 分的挑战链接也就一两百个字符。零运行时依赖，JS 约 33KB（gzip）。
 ```
 
 ### English
@@ -39,7 +39,7 @@ Reply (270/280):
 
 ```text
 How the ghosts work: a fixed 120 Hz sim using only exact IEEE math, so seed + start height + the step of each tap replays bit-for-bit on any device.
-~2–3 bytes per second of play; a 50-point challenge link is a couple hundred chars. Zero runtime deps, ~24 KB JS gzipped.
+~2–3 bytes per second of play; a 50-point challenge link is a couple hundred chars. Zero runtime deps, ~33 KB JS gzipped.
 ```
 
 ## 收录到游戏大厅 [`wowayou/games`](https://github.com/wowayou/games)

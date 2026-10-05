@@ -4,10 +4,11 @@ import './styles.css';
 import { AudioManager } from './audio/AudioManager.ts';
 import { Autopilot } from './game/autopilot.ts';
 import { TIMING } from './game/config.ts';
-import { Game, MAX_RECORDED_FLAPS, type GameEvent, type RunRecord } from './game/Game.ts';
+import { Game, type GameEvent, type RunRecord } from './game/Game.ts';
 import { FixedStepLoop } from './game/loop.ts';
-import { bindInput } from './input.ts';
-import { loadCatArt } from './render/cat.ts';
+import { isMapId, MAP_IDS, type MapId } from './game/maps.ts';
+import { Controls } from './input.ts';
+import { fishIconUrl, loadCatArt } from './render/cat.ts';
 import { GHOST_COLORS, GINGER } from './render/palette.ts';
 import { POPUP_FONT, Renderer } from './render/Renderer.ts';
 import { cleanName, decodeChallenge, encodeChallenge, mergeGhosts, verifyGhosts, type Ghost } from './social/link.ts';
@@ -18,8 +19,8 @@ import { pickStrings } from './ui/strings.ts';
 
 /*
  * Wiring only. The simulation (Game) knows nothing about the DOM; the
- * renderer and HUD only read it; input only calls its one action. Each frame:
- * advance fixed steps → hand events to effects/audio/UI → draw.
+ * renderer and HUD only read it; input only presses, holds and lets go.
+ * Each frame: advance fixed steps → hand events to effects/audio/UI → draw.
  */
 
 const params = new URLSearchParams(location.search);
@@ -32,13 +33,17 @@ const reducedMotion = media('(prefers-reduced-motion: reduce)');
 
 const store = new SettingsStore(browserStorage());
 const settings = store.load();
-let best = settings.best;
+const bests = Object.fromEntries(MAP_IDS.map((m) => [m, store.loadBest(m)])) as Record<MapId, number>;
+/** The map picked for free flight (`?map=` picks one too). A challenge flies its own map without changing this. */
+const mapParam = params.get('map');
+let pickedMap: MapId = isMapId(mapParam) ? mapParam : store.loadMap();
+if (isMapId(mapParam)) store.saveMap(mapParam);
 const strings = pickStrings(navigator.languages ?? [navigator.language]);
 const artStatus = document.getElementById('art-status')!;
 artStatus.querySelector('p')!.textContent = strings.loading;
 const pid = store.playerId();
 
-const game = new Game();
+const game = new Game(undefined, pickedMap);
 const loop = new FixedStepLoop();
 const renderer = new Renderer(canvas);
 renderer.reducedMotion = reducedMotion;
@@ -63,10 +68,25 @@ const hud = new Hud(document, strings, touch, reducedMotion, {
     hud.nameValue = cleanName(name);
     store.saveName(hud.nameValue);
   },
+  cycleMap,
 });
 hud.setSound(settings.soundOn);
 hud.nameValue = store.loadName();
 hud.setShareable(false);
+hud.setMap(game.map, bests[game.map]);
+
+// ---------------------------------------------------------------- maps
+
+/** ←/→ on the Ready screen: the next map along (never mid-run or in a challenge). */
+function cycleMap(step: number): void {
+  if (squad || game.phase !== 'ready') return;
+  const i = MAP_IDS.indexOf(pickedMap);
+  pickedMap = MAP_IDS[(i + step + MAP_IDS.length) % MAP_IDS.length];
+  store.saveMap(pickedMap);
+  game.setMap(pickedMap);
+  hud.setMap(pickedMap, bests[pickedMap]);
+  audio.play('tick');
+}
 
 // ---------------------------------------------------------------- challenges
 
@@ -82,20 +102,22 @@ const myName = () => cleanName(hud.nameValue) || strings.defaultName;
 const rankRows = (rows: Standing[]): RankRow[] =>
   rows.map((r) => ({ name: r.me ? strings.you : r.name, score: r.score, me: r.me, color: r.me ? GINGER.fur : GHOST_COLORS[r.coat] }));
 
-function enterChallenge(seed: number, ghosts: Ghost[]): void {
+function enterChallenge(map: MapId, seed: number, ghosts: Ghost[]): void {
   squad = new Squad(ghosts);
   game.fixedSeed = seed;
-  game.reset(seed);
+  game.setMap(map, seed);
+  hud.setMap(map, bests[map]);
   renderer.setSquad(squad);
-  hud.setChallenge(rankRows(squad.standings('', -1).filter((r) => !r.me)));
+  hud.setChallenge(rankRows(squad.standings('', -1).filter((r) => !r.me)), map);
 }
 
 function exitChallenge(): void {
   squad = null;
   renderer.setSquad(null);
   game.fixedSeed = null;
-  if (game.phase === 'ready') game.reset();
+  if (game.phase === 'ready') game.setMap(pickedMap);
   hud.setChallenge(null);
+  hud.setMap(game.map, bests[game.map]);
   const url = new URL(location.href);
   url.searchParams.delete('c');
   history.replaceState(history.state, '', url);
@@ -107,25 +129,26 @@ function openLink(value: string): void {
     hud.toast(decoded.reason === 'outdated' ? strings.linkOutdated : strings.linkBroken, 4000);
     return;
   }
-  const { seed, ghosts } = decoded.challenge;
+  const { map, seed, ghosts } = decoded.challenge;
   const { valid, rejected } = verifyGhosts(ghosts);
   if (valid.length === 0) {
     hud.toast(ghosts.length ? strings.linkOutdated : strings.linkBroken, 4000);
     return;
   }
-  enterChallenge(seed, valid);
+  enterChallenge(map, seed, valid);
   if (rejected > 0) hud.toast(strings.ghostsSkipped(rejected), 4000);
 }
 
 async function share(): Promise<void> {
   if (!shareable) return;
   const me: Ghost = { pid, name: myName(), score: shareable.score, record: shareable.record };
-  const others = squad && game.fixedSeed === shareable.record.seed ? squad.rivals.map((r) => r.ghost) : [];
+  const sameCourse = game.fixedSeed === shareable.record.seed && game.map === shareable.record.map;
+  const others = squad && sameCourse ? squad.rivals.map((r) => r.ghost) : [];
   const ghosts = mergeGhosts(others, me);
   const self = ghosts.find((g) => g.pid === pid) ?? me;
   const url = new URL(location.pathname, location.origin);
-  url.searchParams.set('c', encodeChallenge({ seed: shareable.record.seed, ghosts }));
-  const text = strings.shareText(self.score, ghosts.indexOf(self) + 1, ghosts.length);
+  url.searchParams.set('c', encodeChallenge({ map: shareable.record.map, seed: shareable.record.seed, ghosts }));
+  const text = strings.shareText(self.score, ghosts.indexOf(self) + 1, ghosts.length, strings.mapNames[shareable.record.map]);
 
   if (typeof navigator.share === 'function') {
     try {
@@ -160,9 +183,19 @@ function onEvent(e: GameEvent): void {
     case 'flap':
       audio.play('flap');
       break;
+    case 'glide':
+      audio.play('glide');
+      break;
+    case 'capeEmpty':
+      audio.play('fizzle');
+      break;
+    case 'fish':
+      audio.play('fish');
+      break;
     case 'score': {
       audio.play('score');
       hud.pulseScore();
+      const best = bests[game.map];
       if (!celebrated && best > 0 && e.score > best) {
         celebrated = true;
         hud.celebrateBest();
@@ -187,16 +220,18 @@ function onEvent(e: GameEvent): void {
       audio.play('go');
       break;
     case 'gameover': {
-      const isNew = e.score > best;
+      const map = game.map;
+      const isNew = e.score > bests[map];
       if (isNew) {
-        best = e.score;
-        store.saveBest(best);
+        bests[map] = e.score;
+        store.saveBest(e.score, map);
       }
-      hud.showResult(e.score, best, isNew);
+      hud.showResult(e.score, bests[map], isNew, map, game.fish);
       // Keep the best run on this course for sharing (a record past the flap cap couldn't replay).
       const record = game.record;
-      if (record.flaps.length < MAX_RECORDED_FLAPS && (!shareable || shareable.record.seed !== record.seed || e.score >= shareable.score)) {
-        shareable = { score: e.score, record: { ...record, flaps: record.flaps.slice() } };
+      const sameCourse = shareable && shareable.record.seed === record.seed && shareable.record.map === record.map;
+      if (game.recordComplete && (!sameCourse || e.score >= shareable!.score)) {
+        shareable = { score: e.score, record: { ...record, flaps: record.flaps.slice(), holds: record.holds.slice() } };
       }
       hud.setShareable(shareable !== null);
       hud.showStandings(squad ? rankRows(squad.standings(myName(), e.score)) : null);
@@ -224,11 +259,31 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('blur', () => game.pause());
 
+const controls = new Controls({
+  primary: () => game.flap(),
+  hold: (down) => game.setHold(down),
+  togglePause: () => game.togglePause(),
+  toggleSound,
+  gesture: () => audio.unlock(),
+  cycleMap,
+});
+
+/** Gamepad buttons have no events: read them every frame (where the API is allowed at all). */
+function pollGamepads(): void {
+  try {
+    const pads = navigator.getGamepads?.();
+    if (pads) controls.pollGamepads(pads);
+  } catch {
+    // Blocked by a permissions policy: no gamepads, nothing else changes.
+  }
+}
+
 let beat = 0;
 let last = performance.now();
 function frame(now: number): void {
   const dt = Math.max(0, (now - last) / 1000);
   last = now;
+  pollGamepads();
 
   const alpha = loop.advance(dt, (step) => {
     if (bot) {
@@ -249,7 +304,7 @@ function frame(now: number): void {
   }
 
   renderer.render(game, alpha, Math.min(dt, TIMING.maxFrameDt));
-  hud.sync(game, best);
+  hud.sync(game, bests[game.map]);
   requestAnimationFrame(frame);
 }
 
@@ -262,16 +317,12 @@ void loadCatArt().then(() => {
   // Establish the first screen before revealing it, avoiding transitions
   // from uninitialized overlays while the image is being decoded.
   renderer.render(game, 0, 0);
-  hud.sync(game, best);
+  hud.sync(game, bests[game.map]);
+  document.documentElement.style.setProperty('--fish-icon', `url(${fishIconUrl()})`);
   artStatus.hidden = true;
   app.inert = false;
   app.removeAttribute('aria-busy');
-  bindInput(app, window, {
-    primary: () => game.flap(),
-    togglePause: () => game.togglePause(),
-    toggleSound,
-    gesture: () => audio.unlock(),
-  });
+  controls.bind(app, window);
   requestAnimationFrame((t) => {
     last = t;
     frame(t);

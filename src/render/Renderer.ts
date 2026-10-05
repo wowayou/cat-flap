@@ -1,13 +1,13 @@
 import { circleHitsObstacle } from '../game/collision.ts';
-import { CAT, FAIRNESS, OBSTACLE, WORLD } from '../game/config.ts';
+import { CAT, FAIRNESS, FISH, GLIDE, OBSTACLE, WORLD } from '../game/config.ts';
 import type { Game, GameEvent } from '../game/Game.ts';
+import { fishY } from '../game/obstacles.ts';
 import type { Squad } from '../social/squad.ts';
 import { CatAnimator } from './animator.ts';
-import { drawCat, drawGhostCat } from './cat.ts';
+import { drawCat, drawFish, drawGhostCat } from './cat.ts';
 import { Fx } from './fx.ts';
-import { GHOST_COLORS, INK, skyAt, type SkyPalette } from './palette.ts';
-import { drawObstacle } from './posts.ts';
-import { drawCity, drawClouds, drawSky, drawStars, drawSunMoon, drawWall } from './scenery.ts';
+import { GHOST_COLORS, INK } from './palette.ts';
+import { THEMES, type ThemeFrame } from './themes.ts';
 import { computeView, type View } from './view.ts';
 
 export const POPUP_FONT = '700 22px "Fredoka Variable", "Fredoka", ui-rounded, system-ui, sans-serif';
@@ -27,6 +27,13 @@ interface NameTag {
 }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** Cape-energy ring, just over the cat's ears (clear of the spread cape). */
+const RING_DX = 6;
+const RING_DY = -38;
+const RING_R = 6.5;
+const CAPE_RED = '#e0393f';
+/** Seconds between wind streaks off a gliding cape. */
+const STREAK_EVERY = 0.05;
 
 /** A crashed cat flips belly-up a little above where it fell. */
 const deathLift = (game: Game) => (game.phase === 'dying' || game.phase === 'gameover' ? 9 * clamp01((game.time - game.cat.deathAt) / 0.55) : 0);
@@ -50,9 +57,11 @@ export class Renderer {
   private readonly tags: NameTag[] = [];
   private readonly spareTags: NameTag[] = [];
   private animTime = 0;
+  /** Smoothed score, for the themes' slow ambient changes. */
   private skyPos = 0;
-  private sky: SkyPalette = skyAt(0);
-  private skyDrawnAt = 0;
+  private readonly frameInfo: ThemeFrame = { progress: 0, time: 0, scroll: 0 };
+  private ringAlpha = 0;
+  private streakIn = 0;
   private fps = 60;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -89,8 +98,19 @@ export class Renderer {
       case 'flap':
         this.fx.puff(wx - 16, cat.y + 10);
         break;
+      case 'glide':
+        // The cape snaps open: a puff of air off its trailing edge.
+        this.fx.puff(wx - 34, cat.y - 4);
+        break;
+      case 'capeEmpty':
+        this.fx.dust(wx - 30, cat.y - 2);
+        break;
+      case 'fish':
+        this.fx.sparks(e.x, e.y);
+        this.fx.fishPop(e.x - game.scroll, e.y);
+        break;
       case 'score':
-        this.fx.popup(CAT.x + 4, cat.y - 30, '+1');
+        this.fx.popup(CAT.x + 4, cat.y - 36, '+1');
         this.fx.sparks(wx + 6, cat.y - 4);
         break;
       case 'bonk':
@@ -129,10 +149,11 @@ export class Renderer {
 
     // Sky drifts towards the current score; on a new run it eases back to sunset.
     this.skyPos += (game.score - this.skyPos) * clamp01(dt * 1.2);
-    if (Math.abs(this.skyPos - this.skyDrawnAt) > 0.002) {
-      this.sky = skyAt(this.skyPos);
-      this.skyDrawnAt = this.skyPos;
-    }
+    const theme = THEMES[game.map];
+    const f = this.frameInfo;
+    f.progress = this.skyPos;
+    f.time = this.animTime;
+    f.scroll = scroll;
 
     const k = v.dpr * v.scale;
     ctx.setTransform(k, 0, 0, k, v.dpr * v.offsetX, v.dpr * v.offsetY);
@@ -141,12 +162,7 @@ export class Renderer {
       ctx.translate(Math.sin(this.animTime * 91) * s, Math.cos(this.animTime * 67) * s);
     }
 
-    drawSky(ctx, v, this.sky);
-    drawStars(ctx, v, this.sky, this.animTime, scroll);
-    drawSunMoon(ctx, this.sky);
-    drawClouds(ctx, v, this.sky, this.animTime, scroll);
-    drawCity(ctx, v, this.sky, scroll);
-    drawWall(ctx, v, scroll);
+    theme.backdrop(ctx, v, f);
 
     // Gameplay layer, clipped to the fixed world frame.
     ctx.save();
@@ -154,7 +170,16 @@ export class Renderer {
     ctx.rect(0, v.top - 20, WORLD.width, v.bottom - v.top + 40);
     ctx.clip();
     for (const o of game.obstacles) {
-      if (o.active) drawObstacle(ctx, o, o.x - scroll, v.top - 20);
+      if (o.active) theme.obstacle(ctx, o, o.x - scroll, v.top - 20);
+    }
+    theme.foreground?.(ctx, v, f);
+    this.drawFish(ctx, game, scroll);
+    if (!paused && !this.reducedMotion && game.cat.gliding) {
+      this.streakIn -= dt;
+      if (this.streakIn <= 0) {
+        this.streakIn = STREAK_EVERY;
+        this.fx.streak(game.catWorldX - 44, catY - 12);
+      }
     }
     this.fx.draw(ctx, scroll);
     if (this.squad?.flying) {
@@ -164,7 +189,9 @@ export class Renderer {
     this.cat.update(game, dt, this.animTime, this.reducedMotion);
     const flipLift = deathLift(game);
     drawCat(ctx, CAT.x, catY - flipLift, this.cat.pose);
+    this.drawEnergy(ctx, game, catY, paused ? 0 : dt);
     if (game.cat.landed) this.drawDizzy(ctx, catY - flipLift);
+    this.fx.drawFishPops(ctx);
     this.fx.drawPopups(ctx, POPUP_FONT, INK);
     if (this.debug) this.drawDebug(ctx, game, scroll, catY);
     ctx.restore();
@@ -174,6 +201,47 @@ export class Renderer {
       ctx.fillRect(v.left - 20, v.top - 20, v.right - v.left + 40, v.bottom - v.top + 40);
     }
     this.drawSurround(ctx);
+  }
+
+  /** Fish snacks still to be eaten, bobbing gently (the pickup spot itself doesn't move). */
+  private drawFish(ctx: CanvasRenderingContext2D, game: Game, scroll: number): void {
+    for (const o of game.obstacles) {
+      if (!o.active || !o.fish || o.fishTaken) continue;
+      const x = o.x + o.fishDx - scroll;
+      if (x < -20 || x > WORLD.width + 20) continue;
+      const bob = this.reducedMotion ? 0 : Math.sin(this.animTime * 3.1 + o.index) * 2;
+      drawFish(ctx, x, fishY(o) + bob);
+    }
+  }
+
+  /**
+   * Cape energy as a small ring over the cat's head. Shown while it's being
+   * used or refilling, then fades away once full; grey while it can't open.
+   */
+  private drawEnergy(ctx: CanvasRenderingContext2D, game: Game, catY: number, dt: number): void {
+    const cat = game.cat;
+    const flying = game.phase === 'playing' || game.phase === 'paused';
+    const wanted = flying && (cat.gliding || cat.energy < 0.995);
+    this.ringAlpha += ((wanted ? 1 : 0) - this.ringAlpha) * clamp01(dt * (wanted ? 12 : 3));
+    if (game.phase === 'ready') this.ringAlpha = 0;
+    if (this.ringAlpha < 0.02) return;
+    const x = CAT.x + RING_DX;
+    const y = catY + RING_DY;
+    const usable = !cat.spent && cat.energy >= GLIDE.minToOpen;
+    ctx.globalAlpha = this.ringAlpha;
+    ctx.lineWidth = 3.4;
+    ctx.strokeStyle = 'rgba(42,27,61,0.6)';
+    ctx.beginPath();
+    ctx.arc(x, y, RING_R, 0, Math.PI * 2);
+    ctx.stroke();
+    if (cat.energy > 0.001) {
+      ctx.strokeStyle = usable ? CAPE_RED : '#a597b4';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(x, y, RING_R, -Math.PI / 2, -Math.PI / 2 + cat.energy * Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** Friends' ghost cats: translucent, each in its own coat, with a name tag. */
@@ -295,25 +363,33 @@ export class Renderer {
     ctx.stroke();
     ctx.strokeStyle = '#00e5ff';
     const inset = FAIRNESS.collisionInset;
+    const overhang = (OBSTACLE.capWidth - OBSTACLE.postWidth) / 2;
     for (const o of game.obstacles) {
       if (!o.active) continue;
       const x = o.x - scroll;
       const top = o.gapY - o.gap / 2;
       const bottom = o.gapY + o.gap / 2;
-      const px = x + (OBSTACLE.capWidth - OBSTACLE.postWidth) / 2;
-      ctx.strokeRect(x + inset, top - OBSTACLE.capHeight + inset, OBSTACLE.capWidth - 2 * inset, OBSTACLE.capHeight - 2 * inset);
-      ctx.strokeRect(x + inset, bottom + inset, OBSTACLE.capWidth - 2 * inset, OBSTACLE.capHeight - 2 * inset);
-      ctx.strokeRect(px + inset, -1000, OBSTACLE.postWidth - 2 * inset, top - OBSTACLE.capHeight + inset + 1000);
-      ctx.strokeRect(px + inset, bottom + OBSTACLE.capHeight - inset, OBSTACLE.postWidth - 2 * inset, 1000);
+      const px = x + overhang;
+      const postW = o.width - 2 * overhang;
+      ctx.strokeRect(x + inset, top - OBSTACLE.capHeight + inset, o.width - 2 * inset, OBSTACLE.capHeight - 2 * inset);
+      ctx.strokeRect(x + inset, bottom + inset, o.width - 2 * inset, OBSTACLE.capHeight - 2 * inset);
+      ctx.strokeRect(px + inset, -1000, postW - 2 * inset, top - OBSTACLE.capHeight + inset + 1000);
+      ctx.strokeRect(px + inset, bottom + OBSTACLE.capHeight - inset, postW - 2 * inset, 1000);
       if (circleHitsObstacle(game.scroll + CAT.x, game.cat.y, r, o)) {
         ctx.fillStyle = 'rgba(255,59,107,0.3)';
-        ctx.fillRect(x, top - 40, OBSTACLE.capWidth, o.gap + 80);
+        ctx.fillRect(x, top - 40, o.width, o.gap + 80);
+      }
+      if (o.fish && !o.fishTaken) {
+        ctx.beginPath();
+        ctx.arc(o.x + o.fishDx - scroll, fishY(o), FISH.radius, 0, Math.PI * 2);
+        ctx.stroke();
       }
     }
     ctx.fillStyle = '#fff';
     ctx.font = '11px ui-monospace, monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(`${Math.round(this.fps)} fps  seed ${game.seed}  speed ${game.speed.toFixed(0)}  ${game.phase}`, 6, 6);
+    ctx.fillText(`${Math.round(this.fps)} fps  ${game.map} seed ${game.seed}  speed ${game.speed.toFixed(0)}  ${game.phase}`, 6, 6);
+    ctx.fillText(`cape ${game.cat.energy.toFixed(2)}${game.cat.gliding ? ' gliding' : ''}  fish ${game.fish}`, 6, 20);
   }
 }

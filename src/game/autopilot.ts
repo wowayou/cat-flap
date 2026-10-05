@@ -1,5 +1,6 @@
-import { CAT, FAIRNESS, OBSTACLE, PHYSICS } from './config.ts';
+import { CAT, FAIRNESS, OBSTACLE } from './config.ts';
 import type { Game } from './Game.ts';
+import type { PhysicsRules } from './maps.ts';
 import type { Obstacle } from './obstacles.ts';
 
 export interface AutopilotOptions {
@@ -14,7 +15,7 @@ const MARGIN = 8;
 /** Clearance kept from the bottom cap's real collision edge when coasting through a gap. */
 const COAST_MARGIN = 0.5;
 /** Height gained by one flap (v²/2g, plus a pixel for the discrete integrator). */
-const FLAP_RISE = (PHYSICS.flapVelocity * PHYSICS.flapVelocity) / (2 * PHYSICS.gravity) + 1;
+const flapRise = (p: PhysicsRules) => (p.flapVelocity * p.flapVelocity) / (2 * p.gravity) + 1;
 
 /**
  * A human-paced bot that plans one obstacle ahead the way a person does:
@@ -52,7 +53,7 @@ export class Autopilot {
     const y = game.cat.y + perceivedOffset;
     const vy = game.cat.vy;
     if (this.canCoastThrough(game, y)) return false;
-    const below = y - this.aim(game);
+    const below = y - this.aim(game, flapRise(game.rules.physics));
     // Far below the aim: climb hard. Close: only tap once the last flap has peaked.
     const rising = below > 50 ? -250 : -60;
     return below > 0 && vy > rising;
@@ -72,38 +73,43 @@ export class Autopilot {
     if (!current) return false;
     const next = followingObstacle(game, current);
     const vy = game.cat.vy;
-    if (!next || aimFor(next) <= y) return false;
+    const rise = flapRise(game.rules.physics);
+    if (!next || aimFor(next, rise) <= y) return false;
     const r = CAT.hitboxRadius;
-    const toExit = current.x + OBSTACLE.capWidth + r - game.catWorldX;
-    if (toExit > OBSTACLE.capWidth + 4 * r) return false; // not near it yet
+    const toExit = current.x + current.width + r - game.catWorldX;
+    if (toExit > current.width + 4 * r) return false; // not near it yet
+    if (current.amp > 0) return false; // a bobbing gap's floor moves: keep flying it actively
     const t = toExit / game.speed;
     // Ballistic height at the exit (ignoring the fall-speed cap, so it errs low = safe).
-    const yExit = y + vy * t + 0.5 * PHYSICS.gravity * t * t;
+    const yExit = y + vy * t + 0.5 * game.rules.physics.gravity * t * t;
     const capTop = current.gapY + current.gap / 2 + FAIRNESS.collisionInset;
     return Math.max(y, yExit) + r < capTop - COAST_MARGIN - this.safety;
   }
 
-  private aim(game: Game): number {
+  private aim(game: Game, rise: number): number {
     const current = game.upcomingObstacle();
     if (!current) return CAT.startY + 30;
-    const own = aimFor(current);
+    // Approaching: aim where the gap will be when we get there. Inside: follow it.
+    const inside = current.x - game.catWorldX < CAT.hitboxRadius;
+    const own = inside ? current.gapY + rise / 2 : aimFor(current, rise);
     const next = followingObstacle(game, current);
-    // Only look ahead once we're about to enter / inside the current gap.
-    if (!next || current.x - game.catWorldX > OBSTACLE.capWidth) return own;
+    // Only look ahead once the end of the current gap is near (a standard cap: about to enter it),
+    // and never through a bobbing gap.
+    if (!next || current.amp > 0 || current.x - game.catWorldX > 2 * OBSTACLE.capWidth - current.width) return own;
 
     const r = CAT.hitboxRadius;
     const top = current.gapY - current.gap / 2;
     const bottom = current.gapY + current.gap / 2;
-    // The bob spans [aim - FLAP_RISE, aim]; keep that whole span inside this gap.
-    const lo = top + r + MARGIN + this.safety + FLAP_RISE;
+    // The bob spans [aim - rise, aim]; keep that whole span inside this gap.
+    const lo = top + r + MARGIN + this.safety + rise;
     const hi = bottom - r - MARGIN - this.safety;
-    return Math.min(hi, Math.max(lo, aimFor(next)));
+    return Math.min(hi, Math.max(lo, aimFor(next, rise)));
   }
 }
 
-/** Tap height that centres the flap's bob on the gap. */
-function aimFor(o: Obstacle): number {
-  return o.gapY + FLAP_RISE / 2;
+/** Tap height that centres the flap's bob on the gap where the cat will meet it. */
+function aimFor(o: Obstacle, rise: number): number {
+  return o.passY + rise / 2;
 }
 
 function followingObstacle(game: Game, current: Obstacle): Obstacle | null {

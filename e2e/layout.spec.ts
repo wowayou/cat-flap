@@ -41,5 +41,13 @@ for (const [name, width, height] of SIZES) {
     const door = (await page.locator('.door').boundingBox())!;
     expect(door.x).toBeGreaterThanOrEqual(frame.x);
     expect(door.x + door.width).toBeLessThanOrEqual(frame.x + frame.width);
+
+    // So does the map picker, clear of the title above and the start hint below.
+    const picker = (await page.locator('.map-picker').boundingBox())!;
+    const hint = (await page.locator('.start-hint').boundingBox())!;
+    expect(picker.x).toBeGreaterThanOrEqual(frame.x - 0.5);
+    expect(picker.x + picker.width).toBeLessThanOrEqual(frame.x + frame.width + 0.5);
+    expect(picker.y).toBeGreaterThan(door.y + door.height);
+    expect(picker.y + picker.height).toBeLessThanOrEqual(hint.y + 0.5);
   });
 }

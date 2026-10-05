@@ -7,7 +7,7 @@
 export const INK = '#2a1b3d';
 
 /** Match the source artwork for fur particles and the player's ranking dot. */
-export const GINGER = { fur: '#efa044', cream: '#fff2d9' } as const;
+export const GINGER = { fur: '#f29a38', cream: '#fff4e0' } as const;
 
 /**
  * Friends' ghost cats are translucent silhouettes, one colour each (indexed

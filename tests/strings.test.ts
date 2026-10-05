@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAP_IDS } from '../src/game/maps.ts';
 import { pickStrings } from '../src/ui/strings.ts';
 
 describe('pickStrings', () => {
@@ -23,8 +24,14 @@ describe('pickStrings', () => {
       expect(s.startKeys).toContain('{key}');
       expect(s.overtook('Ann')).toContain('Ann');
       expect(s.ghostsSkipped(2)).toContain('2');
-      expect(s.shareText(23, 2, 4)).toMatch(/23[\s\S]*2[\s\S]*4|23[\s\S]*4[\s\S]*2/);
-      expect(s.shareText(23, 1, 1)).toContain('23');
+      expect(s.shareText(23, 2, 4, 'Moon')).toMatch(/23[\s\S]*2[\s\S]*4|23[\s\S]*4[\s\S]*2/);
+      expect(s.shareText(23, 1, 1, 'Moon')).toContain('23');
+      expect(s.shareText(23, 1, 1, 'Moon')).toContain('Moon');
+      expect(s.stars(2)).toContain('2');
+      for (const map of MAP_IDS) {
+        expect(s.mapNames[map].length, map).toBeGreaterThan(0);
+        expect(s.mapHints[map].length, map).toBeGreaterThan(0);
+      }
     }
   });
 });

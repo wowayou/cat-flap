@@ -68,7 +68,7 @@ const IVY: Ivy[] = Array.from({ length: 4 }, (_, i) => ({
 }));
 
 /** Repeat a tiled layer across the visible range. */
-function tiles(view: View, offset: number, tile: number, each: (originX: number) => void): void {
+export function tiles(view: View, offset: number, tile: number, each: (originX: number) => void): void {
   const start = Math.floor((view.left + offset) / tile) * tile - offset;
   for (let x = start; x < view.right; x += tile) each(x);
 }

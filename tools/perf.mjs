@@ -5,6 +5,7 @@
  *   npm run build && npx vite preview --port 4173 &
  *   node tools/perf.mjs [seconds=60] [url=http://localhost:4173/?bot]
  *   node tools/perf.mjs 60 http://localhost:4173/?bot --ghosts
+ *   node tools/perf.mjs 60 'http://localhost:4173/?bot&map=library' --ghosts
  */
 import { chromium } from '@playwright/test';
 import { Game } from '../src/game/Game.ts';
@@ -14,10 +15,11 @@ import { encodeChallenge, MAX_GHOSTS, verifyGhosts } from '../src/social/link.ts
 const seconds = Number(process.argv[2] ?? 60);
 const url = new URL(process.argv[3] ?? 'http://localhost:4173/?bot');
 const withGhosts = process.argv.includes('--ghosts');
+const map = url.searchParams.get('map') ?? 'garden';
 if (withGhosts) {
   // Five valid, long recordings keep the maximum squad visible throughout
   // the sample. Distinct IDs keep all five entries after link validation.
-  const game = new Game(9001), bot = new Autopilot();
+  const game = new Game(9001, map), bot = new Autopilot();
   game.flap();
   const flightSeconds = seconds + 15;
   for (let i = 0; i < 120 * (flightSeconds + 10) && game.phase === 'playing'; i++) {
@@ -29,7 +31,7 @@ if (withGhosts) {
     pid: i + 1, name: `Ghost ${i + 1}`, score: game.score, record: game.record,
   }));
   if (verifyGhosts(ghosts).valid.length !== MAX_GHOSTS) throw new Error('Invalid performance recordings');
-  url.searchParams.set('c', encodeChallenge({ seed: game.seed, ghosts }));
+  url.searchParams.set('c', encodeChallenge({ map, seed: game.seed, ghosts }));
   url.searchParams.set('bot', '');
 }
 
@@ -43,12 +45,13 @@ for (const [name, viewport, dpr] of [['desktop 1280×800 @1x', { width: 1280, he
     const costs = (window.__costs = []);
     const cats = (window.__cats = []);
     let drawn = 0;
-    // Only complete character composites are blitted to the stage. Count
-    // actual draws, so a short/failed replay cannot report a five-ghost run.
-    const drawImage = CanvasRenderingContext2D.prototype.drawImage;
-    CanvasRenderingContext2D.prototype.drawImage = function (...args) {
-      if (this.canvas.id === 'stage') drawn++;
-      return Reflect.apply(drawImage, this, args);
+    // Each ghost keeps its cape and tail outside its body with exactly one
+    // even-odd clip (nothing else in the game uses one). Count actual draws,
+    // so a short or failed replay cannot report a five-ghost run.
+    const clip = CanvasRenderingContext2D.prototype.clip;
+    CanvasRenderingContext2D.prototype.clip = function (...args) {
+      if (this.canvas.id === 'stage' && args.includes('evenodd')) drawn++;
+      return Reflect.apply(clip, this, args);
     };
     window.requestAnimationFrame = (cb) => raf((t) => {
       drawn = 0;
@@ -73,7 +76,7 @@ for (const [name, viewport, dpr] of [['desktop 1280×800 @1x', { width: 1280, he
   await page.evaluate(() => { window.__costs.length = 0; window.__cats.length = 0; });
   await page.waitForTimeout(seconds * 1000);
   const { costs, cats } = await page.evaluate(() => ({ costs: window.__costs.slice(), cats: window.__cats.slice() }));
-  if (!costs.length || (withGhosts && cats.some((count) => count !== MAX_GHOSTS + 1))) {
+  if (!costs.length || (withGhosts && cats.some((count) => count !== MAX_GHOSTS))) {
     throw new Error('The full squad was not drawn in every sampled frame');
   }
   const heapEnd = await heap();
@@ -83,7 +86,7 @@ for (const [name, viewport, dpr] of [['desktop 1280×800 @1x', { width: 1280, he
   results.push({
     profile: name,
     frames: costs.length,
-    'cats/frame min': Math.min(...cats),
+    'ghosts/frame min': Math.min(...cats),
     'fps': (costs.length / seconds).toFixed(1),
     'median ms': pct(0.5),
     'p95 ms': pct(0.95),

@@ -7,9 +7,13 @@ export interface GapShape {
   gapY: number;
   /** Gap height. */
   gap: number;
+  /** Cap width (default: the standard cap). Posts are always this minus the standard overhang. */
+  width?: number;
 }
 
 const FAR = 1e5;
+/** How far a cap sticks out past its post on each side. */
+const OVERHANG = (OBSTACLE.capWidth - OBSTACLE.postWidth) / 2;
 
 /** Circle vs axis-aligned rect. Strict: exactly touching is not a hit. */
 export function circleHitsRect(
@@ -31,7 +35,8 @@ export function circleHitsRect(
  */
 export function circleHitsObstacle(cx: number, cy: number, r: number, o: GapShape): boolean {
   const inset = FAIRNESS.collisionInset;
-  const { capWidth, capHeight, postWidth } = OBSTACLE;
+  const { capHeight } = OBSTACLE;
+  const capWidth = o.width ?? OBSTACLE.capWidth;
   const gapTop = o.gapY - o.gap / 2;
   const gapBottom = o.gapY + o.gap / 2;
 
@@ -40,8 +45,9 @@ export function circleHitsObstacle(cx: number, cy: number, r: number, o: GapShap
   // Broad phase: nothing in this obstacle can be touched from further away.
   if (cx + r <= capL || cx - r >= capR) return false;
 
-  const postL = o.x + (capWidth - postWidth) / 2 + inset;
-  const postR = o.x + (capWidth + postWidth) / 2 - inset;
+  // Offsets are summed before adding to x, so standard posts round exactly as they always have (replays depend on it).
+  const postL = o.x + OVERHANG + inset;
+  const postR = o.x + (capWidth - OVERHANG) - inset;
 
   return (
     circleHitsRect(cx, cy, r, capL, gapTop - capHeight + inset, capR, gapTop - inset) ||

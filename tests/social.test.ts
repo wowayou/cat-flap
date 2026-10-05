@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Autopilot } from '../src/game/autopilot.ts';
 import { Game, type RunRecord } from '../src/game/Game.ts';
+import type { MapId } from '../src/game/maps.ts';
+import { createRng } from '../src/game/rng.ts';
 import {
   cleanName, decodeChallenge, encodeChallenge, MAX_GHOSTS, mergeGhosts, SIM_SIGNATURE, verifyGhosts, type Ghost,
 } from '../src/social/link.ts';
@@ -105,7 +107,7 @@ describe('challenge links', () => {
   it('round-trips seed, names, scores and exact floats', () => {
     const a = ghost(0xdeadbeef, '小明', 77, 4);
     const b = ghost(12345, 'Ann', 77, 9, 2.2);
-    const text = encodeChallenge({ seed: 77, ghosts: [a, b] });
+    const text = encodeChallenge({ map: 'garden', seed: 77, ghosts: [a, b] });
     expect(text).toMatch(/^[A-Za-z0-9_-]+$/);
     const back = decodeChallenge(text);
     expect(back.ok).toBe(true);
@@ -116,7 +118,7 @@ describe('challenge links', () => {
 
   it('is compact: about a byte per flap', () => {
     const g = ghost(1, 'x', 5, 30);
-    const text = encodeChallenge({ seed: 5, ghosts: [g] });
+    const text = encodeChallenge({ map: 'garden', seed: 5, ghosts: [g] });
     expect(text.length).toBeLessThan(40 + g.record.flaps.length * 2);
   });
 
@@ -129,7 +131,7 @@ describe('challenge links', () => {
   });
 
   it('rejects garbage, truncation, trailing bytes and links from other rules', () => {
-    const text = encodeChallenge({ seed: 3, ghosts: [ghost(1, 'a', 3, 2)] });
+    const text = encodeChallenge({ map: 'garden', seed: 3, ghosts: [ghost(1, 'a', 3, 2)] });
     for (const bad of ['', '!!!', 'AAAA', text.slice(0, -3), `${text}AA`, 'x'.repeat(20_000)]) {
       expect(decodeChallenge(bad).ok).toBe(false);
     }
@@ -151,7 +153,7 @@ describe('challenge links', () => {
 });
 
 describe('merging ghosts for a share', () => {
-  const g = (pid: number, score: number, name = `p${pid}`): Ghost => ({ pid, name, score, record: { seed: 1, startScroll: 0, startY: 272, flaps: [0] } });
+  const g = (pid: number, score: number, name = `p${pid}`): Ghost => ({ pid, name, score, record: { map: 'garden', seed: 1, startScroll: 0, startY: 272, flaps: [0], holds: [] } });
 
   it('adds me, sorted by score', () => {
     expect(mergeGhosts([g(1, 5), g(2, 9)], g(3, 7)).map((x) => x.pid)).toEqual([2, 3, 1]);
@@ -250,5 +252,100 @@ describe('squad (ghosts flying with the player)', () => {
     expect(new Set(squad.rivals.map((r) => r.coat)).size).toBe(3);
     const rows = squad.standings('me', 2);
     expect(rows[0]).toMatchObject({ name: 'me', me: true });
+  });
+});
+
+/**
+ * A run with gliding: the autopilot taps, and after each tap holds on for a
+ * pseudo-random while (often past the top of the flap, so the cape opens).
+ */
+function playGlideRun(seed: number, stopAt: number, map: MapId = 'garden') {
+  const game = new Game(seed, map);
+  const bot = new Autopilot({ minTapInterval: 0.2 });
+  const rng = createRng(seed ^ 0x51ed);
+  let letGoAt = -1;
+  run(game, 0.5);
+  game.setHold(true);
+  game.flap();
+  letGoAt = game.time + 0.6;
+  for (let i = 0; i < 120 * 600 && game.phase === 'playing'; i++) {
+    if (game.score < stopAt && bot.update(game)) {
+      game.setHold(true);
+      letGoAt = game.time + 0.1 + rng() * 0.6;
+    }
+    if (game.held && game.time >= letGoAt) game.setHold(false);
+    game.step(DT);
+  }
+  const record = { ...game.record, flaps: game.record.flaps.slice(), holds: game.record.holds.slice() };
+  return { record, score: game.score, ticks: game.runTicks, game };
+}
+
+describe('gliding in replays and links', () => {
+  it('replays a run with holds bit-for-bit', () => {
+    let glides = 0;
+    for (const seed of [5, 17, 99]) {
+      const live = playGlideRun(seed, 8);
+      glides += live.record.holds.length;
+      expect(simulate(live.record)).toEqual({ score: live.score, ticks: live.ticks });
+    }
+    expect(glides).toBeGreaterThan(6); // the runs really did glide
+  });
+
+  it('a replay records the same holds it was given', () => {
+    const live = playGlideRun(23, 6);
+    const r = new Replay(live.record);
+    while (r.game.phase === 'playing') r.step();
+    expect(r.game.record.holds).toEqual(live.record.holds);
+    expect(r.game.record.flaps).toEqual(live.record.flaps);
+  });
+
+  it('links carry the map and the holds', () => {
+    const live = playGlideRun(31, 5);
+    const me: Ghost = { pid: 9, name: 'glider', score: live.score, record: live.record };
+    const back = decodeChallenge(encodeChallenge({ map: 'garden', seed: 31, ghosts: [me] }));
+    expect(back.ok && back.challenge.ghosts[0].record.holds).toEqual(live.record.holds);
+    expect(back.ok && back.challenge.map).toBe('garden');
+  });
+
+  it('rejects hold toggles that do not move forward', () => {
+    const base = playGlideRun(41, 3).record;
+    expect(simulate({ ...base, holds: [10, 10] })).toBeNull();
+    expect(simulate({ ...base, holds: [30, 20] })).toBeNull();
+    expect(simulate({ ...base, holds: [-1] })).toBeNull();
+    expect(simulate({ ...base, map: 'atlantis' as MapId })).toBeNull();
+  });
+
+  it('an unknown map number is malformed', () => {
+    const text = encodeChallenge({ map: 'garden', seed: 3, ghosts: [ghost(1, 'a', 3, 2)] });
+    const bytes = Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), (ch) => ch.charCodeAt(0));
+    bytes[3] = 200; // map byte
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    expect(decodeChallenge(btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''))).toEqual({ ok: false, reason: 'malformed' });
+  });
+});
+
+describe('links from before maps and gliding (format 1)', () => {
+  /** The same three-player garden link as e2e/social.spec.ts: recorded before maps existed. */
+  const GOLDEN_V1 = 'AcWeAAAQkgMAAAADBuWwj-aYjgxATgAAAAAAAEBxVkwn27_6HQBRSUJJT0lWSUlOSUFJJ0JATUlJSUlOWUlXSUlEAAAAAQbpmL_oirEIQGSgAAAAAABAcPj3q5PNvxUAU0lBSVFJVUhJTkk-STI_QFBJR0kAAAAHDOeFpOeQg-Wkp-eOixRAcsAAAAAAAEBwlXtOvJDWLgBUSURJTEhZSUhNSUVJMz45TUlLSU1IWUlYSEhJRUxXSTNBUExPRTQ6SU5JMzM';
+
+  it('still open as a garden course and replay to the scores they claim', () => {
+    const decoded = decodeChallenge(GOLDEN_V1);
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) return;
+    expect(decoded.challenge.map).toBe('garden');
+    expect(decoded.challenge.seed).toBe(4242);
+    const { valid, rejected } = verifyGhosts(decoded.challenge.ghosts);
+    expect(rejected).toBe(0);
+    expect(valid.map((g) => [g.name, g.score])).toEqual([['小明', 12], ['阿花', 8], ['煤球大王', 20]]);
+    for (const g of valid) expect(g.record.holds).toEqual([]);
+  });
+
+  it('re-sharing one writes the current format, which decodes to the same runs', () => {
+    const decoded = decodeChallenge(GOLDEN_V1);
+    if (!decoded.ok) throw new Error('golden link must decode');
+    const again = decodeChallenge(encodeChallenge(decoded.challenge));
+    expect(again).toEqual(decoded);
+    expect(encodeChallenge(decoded.challenge).startsWith('AcWe')).toBe(false);
   });
 });

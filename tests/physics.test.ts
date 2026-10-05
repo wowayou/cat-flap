@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { PHYSICS, TIMING } from '../src/game/config.ts';
+import { GLIDE, PHYSICS, TIMING } from '../src/game/config.ts';
 import { Game } from '../src/game/Game.ts';
 import { FixedStepLoop } from '../src/game/loop.ts';
-import { integrate, reachOver } from '../src/game/physics.ts';
+import { glide, integrate, reachOver } from '../src/game/physics.ts';
 
 describe('integrate', () => {
   it('accelerates downward and caps fall speed', () => {
@@ -99,5 +99,43 @@ describe('reach model', () => {
     expect(short.drop).toBeGreaterThan(0);
     expect(long.climb).toBeGreaterThan(short.climb);
     expect(long.drop).toBeGreaterThan(short.drop);
+  });
+});
+
+describe('glide (holding on past the top of a flap)', () => {
+  /** Flap once, then step `seconds`, holding the whole time or not at all. Returns the y per step. */
+  function flight(hold: boolean, seconds: number): { ys: number[]; game: Game } {
+    const game = new Game(1);
+    game.setHold(hold);
+    game.flap();
+    const ys: number[] = [];
+    for (let i = 0; i < Math.round(seconds * 120); i++) {
+      game.step(1 / 120);
+      ys.push(game.cat.y);
+    }
+    return { ys, game };
+  }
+
+  it('leaves the flap itself untouched: the rise is identical with or without holding', () => {
+    const tap = flight(false, 0.3).ys;
+    const held = flight(true, 0.3).ys;
+    expect(held).toEqual(tap); // still rising after 0.3s: holding hasn't done anything yet
+  });
+
+  it('past the top, the cape opens and the cat sinks at the glide speed instead of falling', () => {
+    const tap = flight(false, 0.8);
+    const held = flight(true, 0.8);
+    expect(held.game.cat.gliding).toBe(true);
+    expect(held.game.cat.vy).toBe(GLIDE.fallSpeed);
+    expect(tap.game.cat.vy).toBeGreaterThan(GLIDE.fallSpeed * 2);
+    expect(held.game.cat.y).toBeLessThan(tap.game.cat.y - 40);
+  });
+
+  it('brakes a fast fall down to the glide speed', () => {
+    const body = { y: 0, vy: PHYSICS.maxFallSpeed };
+    for (let i = 0; i < 12; i++) glide(body, 1 / 120);
+    expect(body.vy).toBeLessThan(PHYSICS.maxFallSpeed);
+    for (let i = 0; i < 60; i++) glide(body, 1 / 120);
+    expect(body.vy).toBe(GLIDE.fallSpeed);
   });
 });

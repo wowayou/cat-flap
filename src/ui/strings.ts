@@ -1,3 +1,5 @@
+import type { MapId } from '../game/maps.ts';
+
 /** UI copy. Chinese for zh-* browsers, English otherwise. */
 export interface Strings {
   lang: string;
@@ -10,6 +12,17 @@ export interface Strings {
   startMouse: string;
   /** Rendered next to a "Space" keycap: `{key}` is replaced. */
   startKeys: string;
+  /** How to glide (every device). */
+  startGlide: string;
+  mapNames: Record<MapId, string>;
+  /** One line on what's different about each map. */
+  mapHints: Record<MapId, string>;
+  prevMap: string;
+  nextMap: string;
+  /** Fish snacks eaten (a label for the counters). */
+  fish: string;
+  /** Accessible text for a map's medal stars. */
+  stars: (n: number) => string;
   best: string;
   score: string;
   gameOver: string;
@@ -40,7 +53,7 @@ export interface Strings {
   defaultName: string;
   shareStart: string;
   shareRelay: string;
-  shareText: (score: number, rank: number, total: number) => string;
+  shareText: (score: number, rank: number, total: number, map: string) => string;
   copied: string;
   copyPrompt: string;
   linkOutdated: string;
@@ -58,6 +71,18 @@ const zh: Strings = {
   startTouch: '轻点屏幕起飞',
   startMouse: '点击鼠标起飞',
   startKeys: '或按 {key}',
+  startGlide: '按住不放，披风滑翔',
+  mapNames: { garden: '花园围墙', library: '午夜书房', clouds: '云端漫步', moon: '月球' },
+  mapHints: {
+    garden: '经典猫爬架',
+    library: '长书架是隧道，稳住高度',
+    clouds: '云柱会上下浮动',
+    moon: '低重力，轻飘飘',
+  },
+  prevMap: '上一张地图',
+  nextMap: '下一张地图',
+  fish: '小鱼干',
+  stars: (n) => `${n}/3 颗星`,
   best: '最高',
   score: '得分',
   gameOver: '游戏结束',
@@ -74,7 +99,7 @@ const zh: Strings = {
   resume: '继续',
   soundOn: '声音：开',
   soundOff: '声音：关',
-  canvasLabel: '游戏画面：一只披着红斗篷的猫在猫爬架之间飞行',
+  canvasLabel: '游戏画面：一只披着红斗篷的猫在障碍之间飞行',
   spaceKey: '空格',
   challengeHeading: '好友挑战',
   challengeHint: '和 TA 们的幽灵猫飞同一条航线',
@@ -87,10 +112,10 @@ const zh: Strings = {
   defaultName: '神秘猫友',
   shareStart: '发起挑战',
   shareRelay: '接力分享',
-  shareText: (score, rank, total) =>
+  shareText: (score, rank, total, map) =>
     total > 1
-      ? `我在 Cat Flap 这条航线飞了 ${score} 分，${total} 只猫里排第 ${rank}。来追我的幽灵猫！`
-      : `我在 Cat Flap 飞了 ${score} 分，来追我的幽灵猫！`,
+      ? `我在 Cat Flap「${map}」这条航线飞了 ${score} 分，${total} 只猫里排第 ${rank}。来追我的幽灵猫！`
+      : `我在 Cat Flap「${map}」飞了 ${score} 分，来追我的幽灵猫！`,
   copied: '挑战链接已复制，发给好友吧',
   copyPrompt: '复制这个链接发给好友：',
   linkOutdated: '这条挑战来自旧版本，航线变了，先自由飞吧',
@@ -108,6 +133,18 @@ const en: Strings = {
   startTouch: 'Tap to take off',
   startMouse: 'Click to take off',
   startKeys: 'or press {key}',
+  startGlide: 'Hold on to glide on your cape',
+  mapNames: { garden: 'Garden Wall', library: 'Midnight Library', clouds: 'Cloud Walk', moon: 'The Moon' },
+  mapHints: {
+    garden: 'The classic cat trees',
+    library: 'Long shelves: hold your height',
+    clouds: 'Cloud pillars bob up and down',
+    moon: 'Low gravity, floaty flaps',
+  },
+  prevMap: 'Previous map',
+  nextMap: 'Next map',
+  fish: 'Fish',
+  stars: (n) => `${n} of 3 stars`,
   best: 'Best',
   score: 'Score',
   gameOver: 'Game over',
@@ -124,7 +161,7 @@ const en: Strings = {
   resume: 'Resume',
   soundOn: 'Sound on',
   soundOff: 'Sound off',
-  canvasLabel: 'Game view: a caped cat flying between scratching posts',
+  canvasLabel: 'Game view: a caped cat flying between obstacles',
   spaceKey: 'Space',
   challengeHeading: 'Friends\' challenge',
   challengeHint: 'Fly the same course as their ghosts',
@@ -137,10 +174,10 @@ const en: Strings = {
   defaultName: 'Mystery cat',
   shareStart: 'Challenge friends',
   shareRelay: 'Pass it on',
-  shareText: (score, rank, total) =>
+  shareText: (score, rank, total, map) =>
     total > 1
-      ? `I flew ${score} on this Cat Flap course: #${rank} of ${total} cats. Chase my ghost!`
-      : `I flew ${score} in Cat Flap. Chase my ghost!`,
+      ? `I flew ${score} on this Cat Flap course (${map}): #${rank} of ${total} cats. Chase my ghost!`
+      : `I flew ${score} in Cat Flap (${map}). Chase my ghost!`,
   copied: 'Challenge link copied. Send it to a friend!',
   copyPrompt: 'Copy this link and send it to a friend:',
   linkOutdated: 'That challenge is from an older version. Flying a fresh course.',

@@ -4,7 +4,7 @@
  * code can be rendered offline and measured (see e2e/audio.spec.ts).
  */
 
-export type SfxName = 'flap' | 'score' | 'bonk' | 'hit' | 'meow' | 'tick' | 'go';
+export type SfxName = 'flap' | 'glide' | 'fizzle' | 'fish' | 'score' | 'bonk' | 'hit' | 'meow' | 'tick' | 'go';
 
 const noiseCache = new WeakMap<BaseAudioContext, AudioBuffer>();
 
@@ -68,6 +68,26 @@ function flap(ctx: BaseAudioContext, out: AudioNode, t: number): void {
   const v = 0.9 + Math.random() * 0.2;
   noiseBurst(ctx, out, t, 'bandpass', 900 * v, 2600 * v, 1.4, 0.55, 0.09);
   tone(ctx, out, t, 'sine', 260 * v, 420 * v, 0.07, 0.06);
+}
+
+/** The cape catching the air: a soft, longer, rising whoosh. */
+function glide(ctx: BaseAudioContext, out: AudioNode, t: number): void {
+  noiseBurst(ctx, out, t, 'bandpass', 700, 2200, 1.1, 0.68, 0.26);
+  tone(ctx, out, t, 'sine', 420, 640, 0.07, 0.22, 0.03);
+}
+
+/** The cape running out of puff: a falling "pfff". */
+function fizzle(ctx: BaseAudioContext, out: AudioNode, t: number): void {
+  noiseBurst(ctx, out, t, 'bandpass', 1900, 600, 1.6, 0.45, 0.24);
+  tone(ctx, out, t, 'triangle', 620, 300, 0.08, 0.2);
+}
+
+/** A fish snack: a quick crunchy "nom-nom". */
+function fish(ctx: BaseAudioContext, out: AudioNode, t: number): void {
+  noiseBurst(ctx, out, t, 'bandpass', 3200, 2400, 2, 0.35, 0.04);
+  tone(ctx, out, t, 'triangle', 1320, 990, 0.2, 0.06);
+  noiseBurst(ctx, out, t + 0.08, 'bandpass', 3000, 2200, 2, 0.3, 0.04);
+  tone(ctx, out, t + 0.08, 'triangle', 1560, 1170, 0.2, 0.08);
 }
 
 /** Bright two-note chime. */
@@ -151,5 +171,5 @@ function go(ctx: BaseAudioContext, out: AudioNode, t: number): void {
 }
 
 export const SFX: Record<SfxName, (ctx: BaseAudioContext, out: AudioNode, t: number) => void> = {
-  flap, score, bonk, hit, meow, tick, go,
+  flap, glide, fizzle, fish, score, bonk, hit, meow, tick, go,
 };

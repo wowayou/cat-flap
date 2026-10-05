@@ -1,14 +1,16 @@
+import { drawFish } from './cat.ts';
 import { GINGER } from './palette.ts';
 
 /*
  * Small, pooled effects: flap puffs, crash fur tufts, score sparks, "+1"
- * pop-ups, screen shake and flash. Fixed-size pools — nothing grows during
- * play, however long the session.
+ * pop-ups, wind streaks off a gliding cape, eaten fish, screen shake and
+ * flash. Fixed-size pools — nothing grows during play, however long the session.
  */
 
 const PUFF = 0;
 const TUFT = 1;
 const SPARK = 2;
+const STREAK = 3;
 
 interface Particle {
   active: boolean;
@@ -37,6 +39,8 @@ interface Popup {
 const POOL = 64;
 const POPUPS = 4;
 const POPUP_LIFE = 0.7;
+const FISH_POPS = 3;
+const FISH_POP_LIFE = 0.5;
 
 export class Fx {
   shake = 0;
@@ -45,6 +49,8 @@ export class Fx {
     active: false, kind: 0, x: 0, y: 0, vx: 0, vy: 0, age: 0, life: 1, size: 1, rot: 0, spin: 0,
   }));
   private readonly popups: Popup[] = Array.from({ length: POPUPS }, () => ({ active: false, x: 0, y: 0, age: 0, text: '' }));
+  /** Eaten fish, gulped towards the cat. Screen-world positions, like pop-ups. */
+  private readonly fishPops: Popup[] = Array.from({ length: FISH_POPS }, () => ({ active: false, x: 0, y: 0, age: 0, text: '' }));
   private next = 0;
   private seed = 1;
 
@@ -76,6 +82,27 @@ export class Fx {
     }
   }
 
+  /** Air streaming off the edge of a gliding cape. */
+  streak(x: number, y: number): void {
+    this.spawn(STREAK, x + this.rand(-3, 3), y + this.rand(-6, 6), this.rand(-40, -20), this.rand(-6, 6), this.rand(0.25, 0.4), this.rand(7, 13));
+  }
+
+  /** A fish snack just eaten at screen-world (x, y). */
+  fishPop(x: number, y: number): void {
+    let slot = this.fishPops[0];
+    for (const p of this.fishPops) {
+      if (!p.active) {
+        slot = p;
+        break;
+      }
+      if (p.age > slot.age) slot = p;
+    }
+    slot.active = true;
+    slot.x = x;
+    slot.y = y;
+    slot.age = 0;
+  }
+
   dust(x: number, y: number): void {
     for (let i = 0; i < 6; i++) {
       this.spawn(PUFF, x + this.rand(-14, 14), y - this.rand(0, 4), this.rand(-60, 60), this.rand(-40, -10), this.rand(0.35, 0.5), this.rand(3, 6));
@@ -101,6 +128,7 @@ export class Fx {
   clear(): void {
     for (const p of this.particles) p.active = false;
     for (const p of this.popups) p.active = false;
+    for (const p of this.fishPops) p.active = false;
     this.shake = 0;
     this.flash = 0;
   }
@@ -131,6 +159,11 @@ export class Fx {
       p.age += dt;
       if (p.age >= POPUP_LIFE) p.active = false;
     }
+    for (const p of this.fishPops) {
+      if (!p.active) continue;
+      p.age += dt;
+      if (p.age >= FISH_POP_LIFE) p.active = false;
+    }
     this.shake = Math.max(0, this.shake - dt * 30);
     this.flash = Math.max(0, this.flash - dt * 4);
   }
@@ -147,6 +180,10 @@ export class Fx {
         ctx.beginPath();
         ctx.arc(x, p.y, p.size * (0.6 + t * 0.9), 0, Math.PI * 2);
         ctx.fill();
+      } else if (p.kind === STREAK) {
+        ctx.globalAlpha = 0.6 * (1 - t);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x - p.size, p.y - 0.75, p.size, 1.5);
       } else if (p.kind === TUFT) {
         // A wisp of ginger fur with a pale end, like the chest fur.
         ctx.globalAlpha = t < 0.75 ? 1 : (1 - t) * 4;
@@ -179,6 +216,17 @@ export class Fx {
         ctx.closePath();
         ctx.fill();
       }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Eaten fish: a quick gulp — it pops up, shrinks and fades. Screen-world space. */
+  drawFishPops(ctx: CanvasRenderingContext2D): void {
+    for (const p of this.fishPops) {
+      if (!p.active) continue;
+      const t = p.age / FISH_POP_LIFE;
+      ctx.globalAlpha = 1 - t * t;
+      drawFish(ctx, p.x - t * 6, p.y - 10 * (1 - (1 - t) * (1 - t)), 1 - 0.5 * t);
     }
     ctx.globalAlpha = 1;
   }

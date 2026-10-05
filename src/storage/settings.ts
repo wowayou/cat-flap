@@ -1,16 +1,24 @@
+import { isMapId, type MapId } from '../game/maps.ts';
+
 /**
- * The only persisted state (localStorage): best score, the sound switch, and
- * for challenge links the name shown on your ghost and a random device id.
+ * The only persisted state (localStorage): best score per map, the map last
+ * picked, the sound switch, and for challenge links the name shown on your
+ * ghost and a random device id.
  * Storage can be missing or throw (private browsing, disabled cookies, quota),
  * so every access is guarded and the game falls back to in-memory values.
  */
 
 export const KEYS = {
+  /** The garden's best (the key from before there were other maps, so old records carry over). */
   best: 'catflap.best',
   sound: 'catflap.sound',
   name: 'catflap.name',
   pid: 'catflap.pid',
+  map: 'catflap.map',
 } as const;
+
+/** Where a map's best score is kept. */
+export const bestKey = (map: MapId): string => (map === 'garden' ? KEYS.best : `${KEYS.best}.${map}`);
 
 export type KeyValueStore = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -40,8 +48,22 @@ export class SettingsStore {
     };
   }
 
-  saveBest(best: number): void {
-    this.write(KEYS.best, String(Math.max(0, Math.floor(best))));
+  loadBest(map: MapId): number {
+    return parseBest(this.read(bestKey(map)));
+  }
+
+  saveBest(best: number, map: MapId = 'garden'): void {
+    this.write(bestKey(map), String(Math.max(0, Math.floor(best))));
+  }
+
+  /** The map picked last time (the garden at first, or if what's stored isn't a map). */
+  loadMap(): MapId {
+    const map = this.read(KEYS.map);
+    return isMapId(map) ? map : 'garden';
+  }
+
+  saveMap(map: MapId): void {
+    this.write(KEYS.map, map);
   }
 
   saveSound(on: boolean): void {

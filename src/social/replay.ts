@@ -1,11 +1,13 @@
 import { CAT, TIMING, WORLD } from '../game/config.ts';
 import { Game, type RunRecord } from '../game/Game.ts';
+import { isMapId } from '../game/maps.ts';
 
 /*
- * Ghost replays. A run is fully determined by its seed, where it started and
- * the step index of every flap: the simulation is fixed-step and only uses
- * + − × ÷, min/max and integer ops, which IEEE 754 makes bit-identical in
- * every JS engine. So a few hundred bytes in a link are enough to fly a
+ * Ghost replays. A run is fully determined by its map and seed, where it
+ * started, the step index of every flap and when the player held on to
+ * glide: the simulation is fixed-step and only uses
+ * + − × ÷, min/max/abs/floor and integer ops, which IEEE 754 makes
+ * bit-identical in every JS engine. So a few hundred bytes in a link are enough to fly a
  * friend's exact run next to yours — and to check the score they claim.
  */
 
@@ -18,9 +20,10 @@ export class Replay {
   readonly game: Game;
   readonly record: RunRecord;
   private next = 0;
+  private nextHold = 0;
 
   constructor(record: RunRecord) {
-    const g = new Game(record.seed);
+    const g = new Game(record.seed, record.map);
     g.fixedSeed = record.seed;
     g.scroll = g.prevScroll = record.startScroll;
     g.cat.y = g.cat.prevY = record.startY;
@@ -40,13 +43,19 @@ export class Replay {
     this.game.events.length = 0;
   }
 
-  /** Flaps recorded for the current step count (the first one, at 0, is the take-off). */
+  /** Inputs recorded for the current step count (the first flap, at 0, is the take-off). */
   private applyDue(): void {
     const g = this.game;
     const flaps = this.record.flaps;
     while (this.next < flaps.length && flaps[this.next] <= g.runTicks) {
       if (flaps[this.next] === g.runTicks && (g.phase === 'ready' || g.phase === 'playing')) g.flap();
       this.next++;
+    }
+    // Hold toggles alternate on/off; each sets the level the next step reads.
+    const holds = this.record.holds;
+    while (this.nextHold < holds.length && holds[this.nextHold] <= g.runTicks) {
+      if (holds[this.nextHold] === g.runTicks) g.held = this.nextHold % 2 === 0;
+      this.nextHold++;
     }
   }
 }
@@ -57,13 +66,19 @@ export interface ReplayResult {
   ticks: number;
 }
 
-/** A record is well-formed if it starts with the take-off flap and its flaps never go back in time. */
+/**
+ * A record is well-formed if it is for a known map, starts with the take-off
+ * flap, its flaps never go back in time and its hold toggles strictly move forward.
+ */
 function isWellFormed(record: RunRecord): boolean {
   const f = record.flaps;
+  const h = record.holds;
+  if (!isMapId(record.map)) return false;
   if (f.length === 0 || f[0] !== 0) return false;
   if (!Number.isFinite(record.startScroll) || !Number.isFinite(record.startY)) return false;
   if (record.startY < CAT.hitboxRadius || record.startY > WORLD.groundY - CAT.hitboxRadius) return false;
   for (let i = 1; i < f.length; i++) if (!(f[i] >= f[i - 1])) return false;
+  for (let i = 0; i < h.length; i++) if (!(Number.isInteger(h[i]) && h[i] >= (i === 0 ? 0 : h[i - 1] + 1))) return false;
   return true;
 }
 
@@ -71,7 +86,7 @@ function isWellFormed(record: RunRecord): boolean {
 export function simulate(record: RunRecord): ReplayResult | null {
   if (!isWellFormed(record)) return null;
   const r = new Replay(record);
-  const limit = record.flaps[record.flaps.length - 1] + TAIL_TICKS;
+  const limit = Math.max(record.flaps[record.flaps.length - 1], record.holds[record.holds.length - 1] ?? 0) + TAIL_TICKS;
   while (r.game.phase === 'playing' && r.game.runTicks < limit) r.step();
   if (r.game.phase === 'playing') return null;
   return { score: r.game.score, ticks: r.game.runTicks };
