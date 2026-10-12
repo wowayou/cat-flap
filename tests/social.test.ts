@@ -51,9 +51,10 @@ describe('run recording', () => {
     game.flap();
     run(game, 6);
     run(game, 2);
-    game.flap(); // retry after the lockout
-    expect(game.phase).toBe('ready');
+    game.flap(); // one press after the lockout retries straight into flight
+    expect(game.phase).toBe('playing');
     expect(game.seed).toBe(777);
+    expect(game.record.seed).toBe(777);
   });
 });
 

@@ -15,6 +15,7 @@ import { cleanName, decodeChallenge, encodeChallenge, mergeGhosts, verifyGhosts,
 import { Squad, type Standing } from './social/squad.ts';
 import { browserStorage, SettingsStore } from './storage/settings.ts';
 import { countdownBeat, Hud, type RankRow } from './ui/Hud.ts';
+import { Help } from './ui/Help.ts';
 import { pickStrings } from './ui/strings.ts';
 
 /*
@@ -63,6 +64,13 @@ const hud = new Hud(document, strings, touch, reducedMotion, {
   toggleSound,
   gesture: () => audio.unlock(),
   share: () => void share(),
+  retry: () => { if (game.canRetry) game.flap(); },
+  home: () => {
+    if (!game.canRetry) return;
+    controls.releaseAll();
+    game.reset();
+  },
+  help: () => help.open(),
   exitChallenge,
   nameChanged: (name) => {
     hud.nameValue = cleanName(name);
@@ -140,7 +148,7 @@ function openLink(value: string): void {
 }
 
 async function share(): Promise<void> {
-  if (!shareable) return;
+  if (!shareable || !game.canRetry) return;
   const me: Ghost = { pid, name: myName(), score: shareable.score, record: shareable.record };
   const sameCourse = game.fixedSeed === shareable.record.seed && game.map === shareable.record.map;
   const others = squad && sameCourse ? squad.rivals.map((r) => r.ghost) : [];
@@ -226,7 +234,7 @@ function onEvent(e: GameEvent): void {
         bests[map] = e.score;
         store.saveBest(e.score, map);
       }
-      hud.showResult(e.score, bests[map], isNew, map, game.fish);
+      hud.showResult(e.score, bests[map], isNew, map, game.fish, game.deathCause);
       // Keep the best run on this course for sharing (a record past the flap cap couldn't replay).
       const record = game.record;
       const sameCourse = shareable && shareable.record.seed === record.seed && shareable.record.map === record.map;
@@ -250,15 +258,6 @@ resize();
 window.addEventListener('resize', resize);
 window.visualViewport?.addEventListener('resize', resize);
 
-// Leaving the tab or window pauses the run; it never continues unseen.
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    game.pause();
-    audio.suspend();
-  }
-});
-window.addEventListener('blur', () => game.pause());
-
 const controls = new Controls({
   primary: () => game.flap(),
   hold: (down) => game.setHold(down),
@@ -266,6 +265,12 @@ const controls = new Controls({
   toggleSound,
   gesture: () => audio.unlock(),
   cycleMap,
+});
+
+const help = new Help(document, strings, (open) => {
+  controls.setEnabled(!open);
+  if (open) game.pause();
+  // Closing help never resumes flight automatically.
 });
 
 /** Gamepad buttons have no events: read them every frame (where the API is allowed at all). */
@@ -280,7 +285,35 @@ function pollGamepads(): void {
 
 let beat = 0;
 let last = performance.now();
+let frameId = 0;
+let started = false;
+
+// Hidden pages do no simulation or drawing; returning never catches up hidden time.
+function stopFrame(): void {
+  cancelAnimationFrame(frameId);
+  frameId = 0;
+  loop.reset();
+}
+function startFrame(): void {
+  if (!started || document.hidden || frameId) return;
+  last = performance.now();
+  frameId = requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    game.pause();
+    audio.suspend();
+    stopFrame();
+    hud.sync(game, bests[game.map]);
+  } else startFrame();
+});
+window.addEventListener('blur', () => game.pause());
+window.addEventListener('pagehide', () => { game.pause(); controls.releaseAll(); stopFrame(); });
+window.addEventListener('pageshow', startFrame);
+
 function frame(now: number): void {
+  frameId = 0;
+  if (document.hidden) return;
   const dt = Math.max(0, (now - last) / 1000);
   last = now;
   pollGamepads();
@@ -305,7 +338,7 @@ function frame(now: number): void {
 
   renderer.render(game, alpha, Math.min(dt, TIMING.maxFrameDt));
   hud.sync(game, bests[game.map]);
-  requestAnimationFrame(frame);
+  frameId = requestAnimationFrame(frame);
 }
 
 const link = params.get('c');
@@ -323,10 +356,8 @@ void loadCatArt().then(() => {
   app.inert = false;
   app.removeAttribute('aria-busy');
   controls.bind(app, window);
-  requestAnimationFrame((t) => {
-    last = t;
-    frame(t);
-  });
+  started = true;
+  startFrame();
 }).catch((error: unknown) => {
   console.error('Character artwork failed to load', error);
   artStatus.querySelector('p')!.textContent = strings.artLoadFailed;
