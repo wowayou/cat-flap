@@ -11,7 +11,7 @@ import { createRng, randomSeed, type Rng } from './rng.ts';
  *            ↓ (crash)
  *          DYING (cat drops to the ground, no control)
  *            ↓
- *         GAMEOVER → (tap) → READY
+ *         GAMEOVER → (tap) → PLAYING, or explicitly return to READY
  */
 export type Phase = 'ready' | 'playing' | 'paused' | 'dying' | 'gameover';
 export type DeathCause = 'obstacle' | 'ground';
@@ -187,7 +187,11 @@ export class Game {
         }
         break;
       case 'gameover':
-        if (this.phaseTime >= TIMING.retryLockout) this.reset();
+        if (this.canRetry) {
+          this.reset();
+          this.start();
+          this.doFlap();
+        }
         break;
       case 'dying':
         break; // no control after a crash
@@ -208,8 +212,14 @@ export class Game {
     return this.record.flaps.length < MAX_RECORDED_FLAPS && this.record.holds.length < MAX_RECORDED_FLAPS;
   }
 
-  /** Pause if playing (used for tab-hide / focus loss). */
+  /** The result is safe to act on, for pointer, keyboard and gamepad alike. */
+  get canRetry(): boolean {
+    return this.phase === 'gameover' && this.phaseTime >= TIMING.retryLockout;
+  }
+
+  /** Pause on focus loss, including cancelling an in-progress resume countdown. */
   pause(): void {
+    if (this.phase === 'paused') this.countdown = 0;
     if (this.phase !== 'playing') return;
     this.setPhase('paused');
     this.countdown = 0;

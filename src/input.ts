@@ -49,11 +49,19 @@ interface PadState {
 const isEditable = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || t.closest('input, textarea, select') !== null);
 
+/** UI owns its native pointer and Space/Enter activation; gameplay must not steal it. */
+const isInteractive = (t: EventTarget | null) =>
+  t instanceof Element && t.closest('button, a, input, textarea, select, [contenteditable], dialog') !== null;
+
 export class Controls {
   private readonly actions: InputActions;
   /** Everything holding the primary button down: pointers, keys, gamepads. */
   private readonly holding = new Set<string>();
   private readonly pads = new Map<number, PadState>();
+  private enabled = true;
+  private focused = true;
+  private hidden = false;
+  private resyncPads = false;
 
   constructor(actions: InputActions) {
     this.actions = actions;
@@ -70,8 +78,31 @@ export class Controls {
     this.actions.hold(false);
   }
 
+  /** Modal UI temporarily owns input. Held controls must be released before re-arming. */
+  setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    this.releaseAll();
+    this.resyncPads = true;
+  }
+
+  /** Pointer and keys need a visible page and no modal. */
+  private get active(): boolean {
+    return this.enabled && !this.hidden;
+  }
+
+  /** Gamepads also need focus: pads keep reporting presses while another app is in front. */
+  private get padsActive(): boolean {
+    return this.active && this.focused;
+  }
+
   bind(surface: HTMLElement, win: Window): () => void {
+    this.hidden = win.document.hidden;
+    this.focused = win.document.hasFocus?.() ?? true;
     const onPointerDown = (e: PointerEvent) => {
+      // A click into the page is itself focus coming back; don't drop that first tap.
+      this.focused = true;
+      if (!this.active || isInteractive(e.target)) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       this.actions.gesture();
@@ -81,10 +112,10 @@ export class Controls {
     const onPointerUp = (e: PointerEvent) => this.up(`p${e.pointerId ?? 0}`);
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || isEditable(e.target)) return;
-      const onButton = e.target instanceof HTMLElement && e.target.closest('button') !== null;
-      if (PRIMARY_KEYS.has(e.code) || ((e.code === 'Enter' || e.code === 'NumpadEnter') && !onButton)) {
-        e.preventDefault(); // no page scroll, no button activation by Space
+      if (!this.active || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || isEditable(e.target)) return;
+      if (isInteractive(e.target) && ['Space', 'Enter', 'NumpadEnter'].includes(e.code)) return;
+      if (PRIMARY_KEYS.has(e.code) || e.code === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault(); // no page scroll while flying
         if (e.repeat) return;
         this.actions.gesture();
         this.down(`k${e.code}`);
@@ -105,10 +136,16 @@ export class Controls {
       }
     };
     const onKeyUp = (e: KeyboardEvent) => this.up(`k${e.code}`);
-    const onHidden = () => {
-      if (win.document.hidden) this.releaseAll();
+    const suspend = () => {
+      this.releaseAll();
+      this.resyncPads = true;
     };
-    const onBlur = () => this.releaseAll();
+    const onHidden = () => {
+      this.hidden = win.document.hidden;
+      suspend();
+    };
+    const onBlur = () => { this.focused = false; suspend(); };
+    const onFocus = () => { this.focused = true; this.resyncPads = true; };
 
     const onContextMenu = (e: Event) => e.preventDefault();
     // Some iOS versions only let audio start on the *end* of a touch; unlocking is idempotent.
@@ -123,6 +160,7 @@ export class Controls {
     win.addEventListener('keydown', onKeyDown);
     win.addEventListener('keyup', onKeyUp);
     win.addEventListener('blur', onBlur);
+    win.addEventListener('focus', onFocus);
     win.document.addEventListener('visibilitychange', onHidden);
     return () => {
       surface.removeEventListener('pointerdown', onPointerDown);
@@ -134,7 +172,10 @@ export class Controls {
       win.removeEventListener('keydown', onKeyDown);
       win.removeEventListener('keyup', onKeyUp);
       win.removeEventListener('blur', onBlur);
+      win.removeEventListener('focus', onFocus);
       win.document.removeEventListener('visibilitychange', onHidden);
+      this.releaseAll();
+      this.pads.clear();
     };
   }
 
@@ -145,6 +186,8 @@ export class Controls {
    */
   pollGamepads(pads: ArrayLike<PadLike | null>): void {
     const seen = new Set<number>();
+    const act = this.padsActive && !this.resyncPads;
+    this.resyncPads = false;
     for (let i = 0; i < pads.length; i++) {
       const pad = pads[i];
       if (!pad || !pad.connected) continue;
@@ -159,6 +202,7 @@ export class Controls {
         right: on(PAD_RIGHT),
       };
       this.pads.set(pad.index, next);
+      if (!act) continue; // sample without firing, so held buttons cannot wake the game
       const id = `g${pad.index}`;
       if (next.primary && !prev.primary) {
         this.actions.gesture();

@@ -24,7 +24,7 @@ test('opens straight into a playable Ready screen, with no errors', async ({ pag
   expect(errors).toEqual([]);
 });
 
-test('full loop: start → fall → Game Over → retry → play again, without reloading', async ({ page, isMobile }) => {
+test('full loop: start → fall → Game Over → one press flies again, without reloading', async ({ page, isMobile }) => {
   const errors = trackErrors(page);
   await page.goto('/');
   await page.evaluate(() => ((window as unknown as { marker: number }).marker = 42));
@@ -43,8 +43,7 @@ test('full loop: start → fall → Game Over → retry → play again, without 
   // The retry prompt appears once the short lockout is over.
   await expect(page.locator('#app')).toHaveClass(/can-retry/);
 
-  await press(page, isMobile);
-  await expectPhase(page, 'ready');
+  // One press after the lockout is straight back in the air: no second tap through the Ready screen.
   await press(page, isMobile);
   await expectPhase(page, 'playing');
   await expect(page.locator('.score')).toHaveText('0');
@@ -104,9 +103,13 @@ test('pauses when the page is hidden, resumes after a 3‑2‑1 countdown', asyn
   });
   await expectPhase(page, 'paused');
   await expect(page.locator('.paused-screen h2')).toBeVisible();
+  // Coming back fires visibilitychange in every browser; the game resumes its frame loop but stays paused.
   await page.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
   });
+  await page.waitForTimeout(300);
+  await expectPhase(page, 'paused');
   await press(page, isMobile);
   await expect(page.locator('.countdown')).toHaveText(/[123]/);
   await expectPhase(page, 'playing', 5_000);

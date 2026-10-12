@@ -1,28 +1,23 @@
 import { TIMING, WORLD } from '../game/config.ts';
-import type { Game, Phase } from '../game/Game.ts';
+import type { DeathCause, Game, Phase } from '../game/Game.ts';
 import { MAP_IDS, type MapId } from '../game/maps.ts';
 import type { View } from '../render/view.ts';
 import type { Strings } from './strings.ts';
+import { nextStar, starsFor, starText } from './progress.ts';
 
 export interface HudActions {
   togglePause(): void;
   toggleSound(): void;
   gesture(): void;
   share(): void;
+  retry(): void;
+  home(): void;
+  help(): void;
   exitChallenge(): void;
   nameChanged(name: string): void;
   /** Previous (-1) / next (+1) map. */
   cycleMap(step: number): void;
 }
-
-/** Best scores that earn a map's three stars. */
-const STAR_SCORES = [10, 25, 50] as const;
-
-function starsFor(best: number): number {
-  return STAR_SCORES.filter((s) => best >= s).length;
-}
-
-const starText = (n: number) => '★'.repeat(n) + '☆'.repeat(STAR_SCORES.length - n);
 
 /** One line of a challenge ranking. `color` is the cat's fur, shown as a dot. */
 export interface RankRow {
@@ -75,6 +70,11 @@ export class Hud {
   private readonly finalStars: HTMLElement;
   private readonly finalFish: HTMLElement;
   private readonly challengeHeading: HTMLElement;
+  private readonly readyGoal: HTMLElement;
+  private readonly resultGoal: HTMLElement;
+  private readonly resultTip: HTMLElement;
+  private readonly retryBtn: HTMLButtonElement;
+  private readonly homeBtn: HTMLButtonElement;
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly doc: Document;
   private readonly strings: Strings;
@@ -126,6 +126,31 @@ export class Hud {
     this.finalStars = $('.final-stars');
     this.finalFish = $('.final-fish');
     this.challengeHeading = $('.challenge-heading');
+    this.readyGoal = $('.ready-goal');
+    this.resultGoal = $('.result-goal');
+    this.resultTip = $('.result-tip');
+    this.retryBtn = $<HTMLButtonElement>('.retry-btn');
+    this.homeBtn = $<HTMLButtonElement>('.home-btn');
+    this.retryBtn.textContent = strings.retry;
+    this.homeBtn.textContent = strings.chooseMap;
+    const helpBtn = $<HTMLButtonElement>('.help-btn');
+    helpBtn.setAttribute('aria-label', strings.help);
+    helpBtn.title = strings.help;
+    /**
+     * A mouse/touch click shouldn't leave focus on a HUD button, or the next
+     * Space would press that button instead of flapping. Keyboard activation
+     * (detail 0) keeps focus where keyboard users expect it.
+     */
+    const onClick = (button: HTMLButtonElement, action: () => void) => {
+      button.addEventListener('click', (e) => {
+        if (e.detail > 0) button.blur();
+        actions.gesture();
+        action();
+      });
+    };
+    onClick(this.retryBtn, actions.retry);
+    onClick(this.homeBtn, actions.home);
+    onClick(helpBtn, actions.help);
     const dots = $('.map-dots');
     this.mapDots = MAP_IDS.map(() => dots.appendChild(doc.createElement('i')));
 
@@ -166,38 +191,20 @@ export class Hud {
     prev.title = `${strings.prevMap} (←)`;
     next.setAttribute('aria-label', strings.nextMap);
     next.title = `${strings.nextMap} (→)`;
-    for (const [btn, step] of [[prev, -1], [next, 1]] as const) {
-      btn.addEventListener('click', () => {
-        actions.gesture();
-        actions.cycleMap(step);
-      });
-    }
+    for (const [btn, step] of [[prev, -1], [next, 1]] as const) onClick(btn, () => actions.cycleMap(step));
 
     // Buttons and the name field must not also count as a flap: stop the press reaching the stage.
     for (const el of [this.pauseBtn, this.soundBtn, exit, this.shareRow, prev, next]) {
       el.addEventListener('pointerdown', (e) => e.stopPropagation());
     }
-    this.shareBtn.addEventListener('click', () => {
-      actions.gesture();
-      actions.share();
-    });
-    exit.addEventListener('click', () => {
-      actions.gesture();
-      actions.exitChallenge();
-    });
+    onClick(this.shareBtn, actions.share);
+    onClick(exit, actions.exitChallenge);
     this.nameInput.addEventListener('change', () => actions.nameChanged(this.nameInput.value));
     this.nameInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.nameInput.blur();
     });
-    this.pauseBtn.addEventListener('click', () => {
-      actions.gesture();
-      actions.togglePause();
-      this.pauseBtn.blur();
-    });
-    this.soundBtn.addEventListener('click', () => {
-      actions.gesture();
-      actions.toggleSound();
-    });
+    onClick(this.pauseBtn, actions.togglePause);
+    onClick(this.soundBtn, actions.toggleSound);
   }
 
   /** Pin the overlay to the world frame and scale it with the world. */
@@ -266,7 +273,8 @@ export class Hud {
     if (v) v.textContent = String(best);
     this.readyBest.hidden = best <= 0;
     const stars = starsFor(best);
-    this.mapStars.textContent = starText(stars);
+    this.mapStars.textContent = starText(best);
+    this.readyGoal.textContent = this.goalText(best);
     this.mapStars.setAttribute('aria-label', this.strings.stars(stars));
     MAP_IDS.forEach((id, i) => this.mapDots[i].classList.toggle('on', id === map));
     this.root.dataset.map = map;
@@ -278,6 +286,7 @@ export class Hud {
     this.challengeEl.hidden = !rows;
     this.root.classList.toggle('in-challenge', !!rows);
     this.shareBtn.textContent = rows ? this.strings.shareRelay : this.strings.shareStart;
+    this.homeBtn.textContent = rows ? this.strings.backToChallenge : this.strings.chooseMap;
     if (rows) this.fillRanks(this.challengeList, rows);
     if (!rows) this.showStandings(null);
   }
@@ -329,14 +338,22 @@ export class Hud {
     );
   }
 
+  private goalText(best: number): string {
+    const target = nextStar(best);
+    return target === null ? this.strings.allStars : this.strings.goal(target);
+  }
+
   /** Called once when a run ends. */
-  showResult(score: number, best: number, isNew: boolean, map: MapId, fish: number): void {
+  showResult(score: number, best: number, isNew: boolean, map: MapId, fish: number, cause: DeathCause | null): void {
     this.deaths++;
     this.result = { score, best, isNew };
     this.finalBest.textContent = String(best);
     this.finalMap.textContent = this.strings.mapNames[map];
     const stars = starsFor(best);
-    this.finalStars.textContent = starText(stars);
+    this.finalStars.textContent = starText(best);
+    this.resultGoal.textContent = this.goalText(best);
+    this.resultTip.textContent = cause === 'ground' ? this.strings.groundTip : this.strings.obstacleTip;
+    this.setCanRetry(false);
     this.finalStars.setAttribute('aria-label', this.strings.stars(stars));
     this.finalFish.textContent = String(fish);
     this.root.classList.toggle('is-new-best', isNew);
@@ -352,11 +369,19 @@ export class Hud {
     if (phase !== this.phase) {
       this.root.dataset.phase = phase;
       // Leaving the result card: put the on-screen keyboard away.
-      if (this.phase === 'gameover' && this.doc.activeElement === this.nameInput) this.nameInput.blur();
+      if (this.phase === 'gameover') {
+        if (this.doc.activeElement === this.nameInput) this.nameInput.blur();
+        this.setCanRetry(false);
+      }
       if (phase === 'ready') {
         this.setMap(game.map, best);
-        this.root.classList.remove('can-retry');
-        this.canRetry = false;
+        this.setCanRetry(false);
+      }
+      // CSS exit animations must not leave invisible controls focusable or clickable.
+      for (const screen of this.doc.querySelectorAll<HTMLElement>('.screen')) {
+        const active = screen.classList.contains(`${phase === 'gameover' ? 'over' : phase}-screen`);
+        screen.inert = !active;
+        screen.setAttribute('aria-hidden', String(!active));
       }
       const paused = phase === 'paused';
       this.pauseBtn.setAttribute('aria-label', paused ? this.strings.resume : this.strings.pause);
@@ -397,11 +422,13 @@ export class Hud {
         this.shownFinal = shown;
         this.finalScore.textContent = String(shown);
       }
-      const canRetry = game.phaseTime >= TIMING.retryLockout;
-      if (canRetry !== this.canRetry) {
-        this.canRetry = canRetry;
-        this.root.classList.toggle('can-retry', canRetry);
-      }
+      if (game.canRetry !== this.canRetry) this.setCanRetry(game.canRetry);
     }
+  }
+
+  private setCanRetry(on: boolean): void {
+    this.canRetry = on;
+    this.root.classList.toggle('can-retry', on);
+    for (const control of [this.retryBtn, this.homeBtn, this.shareBtn, this.nameInput]) control.disabled = !on;
   }
 }

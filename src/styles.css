@@ -177,6 +177,18 @@ body {
   visibility: hidden;
 }
 
+.hud-left { position: relative; }
+.help-btn {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  font: 700 24px var(--font);
+}
+[data-phase='ready'] .help-btn,
+[data-phase='paused'] .help-btn { display: grid; }
+[data-phase='paused'] .help-btn { left: max(48px, calc(var(--u) * 52px)); }
+
 /* A fish snack, drawn by the game itself (set by main.ts at a size sharp on any screen). --k scales it. */
 .fish-icon {
   --k: 1;
@@ -462,6 +474,13 @@ body {
   color: var(--muted);
 }
 
+.ready-goal {
+  margin-top: calc(var(--u) * 3px) !important;
+  color: var(--fur-shade);
+  font-size: calc(var(--u) * 12px);
+  font-weight: 600;
+}
+
 .ready-best {
   margin-top: calc(var(--u) * 2px) !important;
   font-size: calc(var(--u) * 13px);
@@ -685,9 +704,53 @@ kbd {
   to { transform: rotate(8deg) scale(1); }
 }
 
+.result-actions {
+  width: calc(var(--u) * 304px);
+  margin-top: calc(var(--u) * 14px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--u) * 5px);
+  text-align: center;
+  color: var(--cream);
+  text-shadow: 0 1px 2px var(--ink), 0 0 5px var(--ink);
+}
+.result-tip { font-size: calc(var(--u) * 13px); line-height: 1.4; }
+.result-goal { font-size: calc(var(--u) * 13px); font-weight: 600; }
+/* Retry and "choose a map" sit side by side, so a full challenge ranking still fits short screens. */
+.result-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 10px;
+}
+/* With a ranking on the card, the ranking is the feedback: drop the tip and keep the actions on screen. */
+.in-challenge .over-screen { padding-top: calc(var(--u) * 52px); }
+.in-challenge .result-tip,
+.in-challenge .result-goal { display: none; }
+.in-challenge .result-actions { margin-top: calc(var(--u) * 10px); }
+.action-btn {
+  min-height: 44px;
+  padding: 10px 24px;
+  border: 2.5px solid var(--ink);
+  border-radius: 99px;
+  background: var(--fur);
+  box-shadow: 0 3px 0 var(--ink);
+  color: var(--ink);
+  font: 700 18px var(--font);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.action-btn:focus-visible { outline: 3px solid var(--cream); outline-offset: 3px; }
+.action-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.result-actions .home-btn { min-height: 40px; color: var(--cream); font-size: max(12px, calc(var(--u) * 13px)); }
+button:disabled { cursor: default; opacity: 0.5; }
+
 .retry-hint {
-  margin-top: calc(var(--u) * 24px) !important;
-  font-size: calc(var(--u) * 20px);
+  margin-top: 0 !important;
+  font-size: calc(var(--u) * 13px);
   font-weight: 600;
   opacity: 0;
   transition: opacity 0.25s;
@@ -936,6 +999,27 @@ kbd {
 .toast.show {
   opacity: 1;
 }
+
+/* Native modal scrolls independently, including on short landscape screens. */
+#help {
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 20px;
+  border: 3px solid var(--ink);
+  border-radius: 20px;
+  background: var(--cream);
+  color: var(--ink);
+  box-shadow: 0 6px 0 var(--ink);
+  font: 15px/1.5 var(--font);
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+#help::backdrop { background: rgba(16, 10, 34, 0.75); }
+#help h2 { margin: 0; font-size: 26px; }
+#help h3 { margin: 16px 0 4px; font-size: 16px; }
+#help p { margin: 0; color: var(--muted); }
+#help .action-btn { display: block; margin: 20px auto 0; }
+#help .action-btn:focus-visible { outline-color: var(--fur-shade); }
 
 @media (prefers-reduced-motion: reduce) {
   *,

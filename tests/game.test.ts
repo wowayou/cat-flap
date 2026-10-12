@@ -85,7 +85,7 @@ describe('PLAYING → DYING → GAMEOVER', () => {
   });
 });
 
-describe('GAMEOVER → READY (restart)', () => {
+describe('GAMEOVER → PLAYING (one-press restart)', () => {
   function deadGame(): Game {
     const game = new Game(5);
     game.flap();
@@ -105,11 +105,12 @@ describe('GAMEOVER → READY (restart)', () => {
     expect(game.score).toBe(3);
     run(game, TIMING.retryLockout);
     game.flap();
-    expect(game.phase).toBe('ready');
+    expect(game.phase).toBe('playing');
+    expect(game.record.flaps).toEqual([0]);
     expect(game.score).toBe(0);
     expect(game.speed).toBe(DIFFICULTY.baseSpeed);
     expect(game.obstacles.some((o) => o.active)).toBe(false);
-    expect(game.cat.vy).toBe(0);
+    expect(game.cat.vy).toBe(PHYSICS.flapVelocity);
     expect(game.cat.landed).toBe(false);
     expect(game.deathCause).toBe(null);
     expect(Math.abs(game.cat.y - CAT.startY)).toBeLessThanOrEqual(CAT.readyBobAmplitude + 1e-9);
@@ -192,7 +193,21 @@ describe('pause', () => {
     expect(game.cat.y).toBe(y); // nothing moved during the countdown... until this step
   });
 
-  it('pause() only acts while playing', () => {
+  it('focus loss cancels a resume countdown without advancing flight', () => {
+    const game = new Game(2);
+    game.flap();
+    game.pause();
+    game.flap();
+    run(game, 0.3);
+    const ticks = game.runTicks;
+    game.pause();
+    expect(game.countdown).toBe(0);
+    run(game, TIMING.resumeCountdown + 1);
+    expect(game.phase).toBe('paused');
+    expect(game.runTicks).toBe(ticks);
+  });
+
+  it('pause() does not start a ready game', () => {
     const game = new Game(2);
     game.pause();
     expect(game.phase).toBe('ready');

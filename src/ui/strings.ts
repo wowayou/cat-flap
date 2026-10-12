@@ -30,6 +30,16 @@ export interface Strings {
   livesLeft: (n: number) => string;
   outOfLives: string;
   newBestQuip: string;
+  retry: string;
+  chooseMap: string;
+  backToChallenge: string;
+  goal: (score: number) => string;
+  allStars: string;
+  groundTip: string;
+  obstacleTip: string;
+  help: string;
+  closeHelp: string;
+  helpSteps: readonly { title: string; text: string }[];
   retryTouch: string;
   retryMouse: string;
   paused: string;
@@ -90,8 +100,24 @@ const zh: Strings = {
   livesLeft: (n) => `猫有九条命，还剩 ${n} 条。`,
   outOfLives: '九条命用完了，再借九条。',
   newBestQuip: '今晚加罐头。',
-  retryTouch: '轻点再来一次',
-  retryMouse: '点击或按空格再来一次',
+  retry: '再飞一次',
+  chooseMap: '返回选图',
+  backToChallenge: '返回挑战',
+  goal: (score) => `下一颗星：${score} 分`,
+  allStars: '三颗星已集齐，挑战新纪录！',
+  groundTip: '落地了：连续轻点保持高度，按住只能减慢下落。',
+  obstacleTip: '撞到障碍了：看准缺口，提前调整高度，不必追每条鱼。',
+  help: '怎么玩',
+  closeHelp: '知道了',
+  helpSteps: [
+    { title: '① 轻点起飞，连续轻点爬升', text: '鼠标、触屏、空格 / ↑ / W 或手柄 A 都可以。松手会下落；穿过一道障碍得 1 分。' },
+    { title: '② 按住，打开披风滑翔', text: '越过最高点才会张开，减慢下落，不会自动向上飞。头顶圆环是能量；用完后松开再点一次。' },
+    { title: '③ 小鱼干补能量，不加分', text: '披风会自行慢慢回充；吃鱼能回充约三分之一。先安全穿过缺口，再考虑吃鱼。' },
+    { title: '④ 四张地图，三个小目标', text: '每张地图 10 / 25 / 50 分各得一颗星，纪录分别保存。首次尝试可选花园；月球下落更慢。' },
+    { title: '随时暂停，也能挑战朋友', text: 'P / Esc 或左上角按钮暂停，继续前有 3‑2‑1。结算后发起挑战，朋友会和你的幽灵猫飞同一条航线。' },
+  ],
+  retryTouch: '也可轻点空白处直接起飞',
+  retryMouse: '也可点空白处或按空格直接起飞',
   paused: '暂停中',
   resumeTouch: '轻点继续',
   resumeMouse: '点击或按空格继续',
@@ -152,8 +178,24 @@ const en: Strings = {
   livesLeft: (n) => `Cats have nine lives. ${n} left.`,
   outOfLives: 'That was life number nine. Borrowing nine more.',
   newBestQuip: 'Extra treats tonight.',
-  retryTouch: 'Tap to try again',
-  retryMouse: 'Click or press Space to try again',
+  retry: 'Fly again',
+  chooseMap: 'Choose a map',
+  backToChallenge: 'Back to challenge',
+  goal: (score) => `Next star: ${score} points`,
+  allStars: 'All three stars! Beat your best.',
+  groundTip: 'Landed! Keep tapping to stay up. Holding only slows your fall.',
+  obstacleTip: 'Hit an obstacle! Aim for the gap early. Not every fish is worth the risk.',
+  help: 'How to play',
+  closeHelp: 'Got it',
+  helpSteps: [
+    { title: '① Tap to fly, tap again to climb', text: 'Use a mouse, touch, Space / ↑ / W or gamepad A. Release to fall. Clear an obstacle for 1 point.' },
+    { title: '② Hold to glide on your cape', text: 'The cape opens after the top of a flap. It slows your fall, not lifts you. The ring shows energy; when empty, release and tap again.' },
+    { title: '③ Fish refill energy, not score', text: 'Your cape slowly recharges. Each fish restores about a third. Clear the gap safely before chasing a snack.' },
+    { title: '④ Four maps, three small goals', text: 'Earn stars at 10 / 25 / 50 points on each map, with separate bests. Start in the Garden, or try the Moon for a slower fall.' },
+    { title: 'Pause anytime. Challenge a friend.', text: 'P / Esc or the top-left button pauses; a 3‑2‑1 gets you ready to resume. Share a run so friends can race your ghost on the same course.' },
+  ],
+  retryTouch: 'Or tap an empty spot to take off',
+  retryMouse: 'Or click an empty spot / press Space',
   paused: 'Paused',
   resumeTouch: 'Tap to continue',
   resumeMouse: 'Click or press Space to continue',

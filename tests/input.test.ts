@@ -74,13 +74,71 @@ describe('one action for every device', () => {
     expect(calls).toEqual([]);
   });
 
-  it('Enter flaps on the stage but is left alone on a focused button', () => {
-    key('Enter');
-    expect(calls).toContain('primary');
-    calls = [];
-    const e = key('Enter', {}, button);
+  it('Space and Enter flap on the stage but keep their native meaning on a focused button', () => {
+    for (const code of ['Space', 'Enter']) {
+      calls = [];
+      key(code);
+      key(code, {}, window, 'keyup');
+      expect(calls, code).toContain('primary');
+      calls = [];
+      const e = key(code, {}, button);
+      expect(calls, code).toEqual([]);
+      expect(e.defaultPrevented, code).toBe(false);
+    }
+  });
+
+  it('a press that lands on any interactive element is left to that element', () => {
+    const link = document.createElement('a');
+    link.href = '#';
+    surface.append(link);
+    pointer(link, { pointerType: 'mouse' });
     expect(calls).toEqual([]);
-    expect(e.defaultPrevented).toBe(false);
+  });
+});
+
+describe('when the game does not own input', () => {
+  it('a modal disables every device and lets go of anything held', () => {
+    const log: string[] = [];
+    const c = new Controls({
+      primary: () => log.push('primary'), hold: (d) => log.push(d ? 'hold' : 'let go'),
+      togglePause: () => log.push('pause'), toggleSound: () => log.push('sound'), gesture: () => {},
+    });
+    const off = c.bind(surface, window);
+    key('Space');
+    c.setEnabled(false);
+    key('Space', {}, window, 'keyup');
+    key('KeyW');
+    key('KeyP');
+    pointer(surface, { pointerType: 'touch', id: 9 });
+    expect(log).toEqual(['hold', 'primary', 'let go']);
+    c.setEnabled(true);
+    key('KeyW');
+    expect(log).toEqual(['hold', 'primary', 'let go', 'hold', 'primary']);
+    off();
+    expect(log.at(-1)).toBe('let go'); // unbinding never leaves a hold behind
+  });
+
+  it('a hidden page ignores keys and taps until it is visible again', () => {
+    let hidden = true;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      key('Space');
+      pointer(surface, { pointerType: 'touch' });
+      expect(calls).toEqual([]);
+      hidden = false;
+      document.dispatchEvent(new Event('visibilitychange'));
+      key('Space');
+      expect(actionsOnly()).toEqual(['hold', 'primary']);
+    } finally {
+      delete (document as { hidden?: boolean }).hidden;
+    }
+  });
+
+  it('the first tap back into an unfocused window still counts', () => {
+    window.dispatchEvent(new Event('blur'));
+    pointer(surface, { pointerType: 'mouse' });
+    expect(actionsOnly()).toEqual(['hold', 'primary']);
   });
 });
 
@@ -151,6 +209,24 @@ describe('gamepads', () => {
     c.pollGamepads([null]);
     expect(c.held).toBe(false);
     expect(log).toEqual(['hold', 'primary', 'let go']);
+  });
+  it('a pad held while the window is in the background never fires when focus returns', () => {
+    const log: string[] = [];
+    const c = new Controls({
+      primary: () => log.push('primary'), hold: (d) => log.push(d ? 'hold' : 'let go'),
+      togglePause: () => log.push('pause'), toggleSound: () => {}, gesture: () => {},
+    });
+    const off = c.bind(surface, window);
+    window.dispatchEvent(new Event('blur'));
+    c.pollGamepads([pad([0, 9])]); // pressed elsewhere: ignored
+    window.dispatchEvent(new Event('focus'));
+    c.pollGamepads([pad([0, 9])]); // still held on return: re-sampled, not a new edge
+    c.pollGamepads([pad([0, 9])]);
+    expect(log).toEqual([]);
+    c.pollGamepads([pad([])]);
+    c.pollGamepads([pad([0])]);
+    expect(log).toEqual(['hold', 'primary']);
+    off();
   });
 });
 

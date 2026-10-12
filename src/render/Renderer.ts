@@ -63,12 +63,16 @@ export class Renderer {
   private ringAlpha = 0;
   private streakIn = 0;
   private fps = 60;
+  /** A paused scene is static; countdown/UI are DOM-only. Resize/squad changes invalidate it. */
+  private pausedGame: Game | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Canvas 2D is not available');
     this.ctx = ctx;
+    // A lost-and-restored canvas is blank: the cached paused frame must be drawn again.
+    canvas.addEventListener('contextrestored', () => (this.pausedGame = null));
   }
 
   get currentView(): View {
@@ -77,6 +81,7 @@ export class Renderer {
 
   /** Friends' ghosts to draw alongside the player (null: none). */
   setSquad(squad: Squad | null): void {
+    this.pausedGame = null;
     this.squad = squad;
     this.ghostAnims = squad ? squad.rivals.map((_, i) => new CatAnimator(0.9 + i * 1.37)) : [];
     this.ghostGeneration = -1;
@@ -85,8 +90,13 @@ export class Renderer {
   resize(cssWidth: number, cssHeight: number, devicePixelRatio: number): View {
     const dpr = Math.min(MAX_DPR, Math.max(1, devicePixelRatio || 1));
     this.view = computeView(cssWidth, cssHeight, dpr);
-    this.canvas.width = Math.round(cssWidth * dpr);
-    this.canvas.height = Math.round(cssHeight * dpr);
+    const width = Math.round(cssWidth * dpr);
+    const height = Math.round(cssHeight * dpr);
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
+    this.pausedGame = null;
     return this.view;
   }
 
@@ -125,6 +135,7 @@ export class Renderer {
         this.fx.dust(wx, WORLD.groundY);
         break;
       case 'reset':
+        this.pausedGame = null;
         // A fresh cat: don't animate the belly-up pose spinning back upright.
         this.fx.clear();
         this.cat.reset();
@@ -136,6 +147,9 @@ export class Renderer {
 
   render(game: Game, alpha: number, dt: number): void {
     const paused = game.phase === 'paused';
+    if (paused && this.pausedGame === game) return;
+    this.pausedGame = paused ? game : null;
+    if (paused) alpha = 1; // pin to the simulation, including the very first paused frame
     if (!paused) {
       this.animTime += dt;
       this.fx.update(dt);
@@ -148,7 +162,7 @@ export class Renderer {
     const catY = game.cat.prevY + (game.cat.y - game.cat.prevY) * alpha;
 
     // Sky drifts towards the current score; on a new run it eases back to sunset.
-    this.skyPos += (game.score - this.skyPos) * clamp01(dt * 1.2);
+    if (!paused) this.skyPos += (game.score - this.skyPos) * clamp01(dt * 1.2);
     const theme = THEMES[game.map];
     const f = this.frameInfo;
     f.progress = this.skyPos;

@@ -30,6 +30,10 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Core interaction checks in one engine before anything is published; the full
+      # four-browser suite (WebKit, Firefox, phones) stays a local pre-release step.
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=desktop-chromium
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
